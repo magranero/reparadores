@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity, useColorScheme, Text, Alert, Platform, Image as RNImage } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, useColorScheme, Text, Alert, Platform, Image as RNImage, ActivityIndicator } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { Button } from '@/components/common/Button';
 import { Typography } from '@/components/common/Typography';
@@ -37,11 +37,38 @@ export default function CameraModal() {
   const [isPlaying, setIsPlaying] = useState(false);
   const sound = useRef<Audio.Sound | null>(null);
   
+  // Add a mounted ref to prevent state updates after unmount
+  const isMounted = useRef(true);
+  
+  useEffect(() => {
+    // Set mounted flag
+    isMounted.current = true;
+    
+    // Cleanup function that runs on unmount
+    return () => {
+      isMounted.current = false;
+      if (recording) {
+        recording.stopAndUnloadAsync();
+      }
+      if (sound.current) {
+        sound.current.unloadAsync();
+      }
+      // Cancel any pending speech
+      Speech.stop();
+    };
+  }, []);
+  
   // Request audio permissions
   useEffect(() => {
     const getAudioPermission = async () => {
-      const { status } = await Audio.requestPermissionsAsync();
-      setAudioPermission(status === 'granted');
+      try {
+        const { status } = await Audio.requestPermissionsAsync();
+        if (isMounted.current) {
+          setAudioPermission(status === 'granted');
+        }
+      } catch (error) {
+        console.error('Error requesting audio permission:', error);
+      }
     };
     
     if (photo) {
@@ -54,7 +81,9 @@ export default function CameraModal() {
     try {
       if (!audioPermission) {
         const { status } = await Audio.requestPermissionsAsync();
-        setAudioPermission(status === 'granted');
+        if (isMounted.current) {
+          setAudioPermission(status === 'granted');
+        }
         if (status !== 'granted') {
           Alert.alert('Permiso necesario', 'Necesitamos permiso para grabar audio');
           return;
@@ -70,17 +99,24 @@ export default function CameraModal() {
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
       
-      setRecording(recording);
-      setIsListening(true);
+      if (isMounted.current) {
+        setRecording(recording);
+        setIsListening(true);
+      } else {
+        // If component unmounted during this async operation, stop recording
+        recording.stopAndUnloadAsync();
+      }
     } catch (err) {
       console.error('Error al iniciar la grabación', err);
-      Alert.alert('Error', 'No se pudo iniciar la grabación de audio');
+      if (isMounted.current) {
+        Alert.alert('Error', 'No se pudo iniciar la grabación de audio');
+      }
     }
   };
   
   // Stop recording audio and transcribe it
   const stopRecording = async () => {
-    if (!recording) return;
+    if (!recording || !isMounted.current) return;
     
     setIsListening(false);
     try {
@@ -94,36 +130,47 @@ export default function CameraModal() {
         throw new Error("No se pudo obtener la URI de la grabación");
       }
       
-      setAudioURI(uri);
-      setRecording(null);
+      if (isMounted.current) {
+        setAudioURI(uri);
+        setRecording(null);
+        
+        // Transcribe the audio using Gemini AI
+        setIsTranscribing(true);
+      }
       
-      // Transcribe the audio using Gemini AI
-      setIsTranscribing(true);
       try {
         const transcription = await transcribeAudio(uri);
-        if (transcription) {
-          setVoiceExplanation(transcription);
-        } else {
-          // Si falla la transcripción, usamos un texto de respaldo para demo
-          setVoiceExplanation('El grifo de la cocina está goteando constantemente y ha formado una mancha de agua en el armario debajo del fregadero.');
-          console.log("Usando texto de respaldo para la transcripción");
+        if (isMounted.current) {
+          if (transcription) {
+            setVoiceExplanation(transcription);
+          } else {
+            // Si falla la transcripción, usamos un texto de respaldo para demo
+            setVoiceExplanation('El grifo de la cocina está goteando constantemente y ha formado una mancha de agua en el armario debajo del fregadero.');
+            console.log("Usando texto de respaldo para la transcripción");
+          }
         }
       } catch (error) {
         console.error("Error en la transcripción:", error);
-        setVoiceExplanation('El grifo de la cocina está goteando constantemente y ha formado una mancha de agua en el armario debajo del fregadero.');
+        if (isMounted.current) {
+          setVoiceExplanation('El grifo de la cocina está goteando constantemente y ha formado una mancha de agua en el armario debajo del fregadero.');
+        }
       } finally {
-        setIsTranscribing(false);
+        if (isMounted.current) {
+          setIsTranscribing(false);
+        }
       }
     } catch (err) {
       console.error('Error al detener la grabación', err);
-      setRecording(null);
-      setIsTranscribing(false);
+      if (isMounted.current) {
+        setRecording(null);
+        setIsTranscribing(false);
+      }
     }
   };
   
   // Play recorded audio
   const playRecordedAudio = async () => {
-    if (!audioURI) return;
+    if (!audioURI || !isMounted.current) return;
     
     try {
       if (sound.current) {
@@ -135,35 +182,30 @@ export default function CameraModal() {
         { shouldPlay: true }
       );
       
+      if (!isMounted.current) {
+        audioSound.unloadAsync();
+        return;
+      }
+      
       sound.current = audioSound;
       setIsPlaying(true);
       
       audioSound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.didJustFinish) {
+        if (status.isLoaded && status.didJustFinish && isMounted.current) {
           setIsPlaying(false);
         }
       });
     } catch (err) {
       console.error('Error al reproducir audio', err);
-      setIsPlaying(false);
+      if (isMounted.current) {
+        setIsPlaying(false);
+      }
     }
   };
   
-  // Clean up resources
-  useEffect(() => {
-    return () => {
-      if (recording) {
-        recording.stopAndUnloadAsync();
-      }
-      if (sound.current) {
-        sound.current.unloadAsync();
-      }
-    };
-  }, [recording]);
-  
   // Función para leer el texto en voz alta
   const speakExplanation = () => {
-    if (voiceExplanation) {
+    if (voiceExplanation && isMounted.current) {
       Speech.speak(voiceExplanation, {
         language: 'es',
         pitch: 1.0,
@@ -216,7 +258,7 @@ export default function CameraModal() {
   
   // Función para tomar foto, con manejo mejorado de errores
   const takePicture = async () => {
-    if (cameraRef.current) {
+    if (cameraRef.current && isMounted.current) {
       try {
         setIsProcessing(true);
         
@@ -230,18 +272,26 @@ export default function CameraModal() {
           { compress: 0.7 }
         );
         
-        setPhoto(manipResult.uri);
+        if (isMounted.current) {
+          setPhoto(manipResult.uri);
+        }
       } catch (error) {
         console.error('Error taking picture:', error);
-        Alert.alert('Error', 'No se pudo tomar la foto. Por favor, inténtalo de nuevo.');
+        if (isMounted.current) {
+          Alert.alert('Error', 'No se pudo tomar la foto. Por favor, inténtalo de nuevo.');
+        }
       } finally {
-        setIsProcessing(false);
+        if (isMounted.current) {
+          setIsProcessing(false);
+        }
       }
     }
   };
   
   // Alternativa: Seleccionar imagen de la galería
   const pickImage = async () => {
+    if (!isMounted.current) return;
+    
     try {
       setIsProcessing(true);
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -251,18 +301,26 @@ export default function CameraModal() {
         quality: 0.7,
       });
       
+      if (!isMounted.current) return;
+      
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setPhoto(result.assets[0].uri);
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', 'No se pudo seleccionar la imagen. Por favor, inténtalo de nuevo.');
+      if (isMounted.current) {
+        Alert.alert('Error', 'No se pudo seleccionar la imagen. Por favor, inténtalo de nuevo.');
+      }
     } finally {
-      setIsProcessing(false);
+      if (isMounted.current) {
+        setIsProcessing(false);
+      }
     }
   };
   
   const retakePicture = () => {
+    if (!isMounted.current) return;
+    
     setPhoto(null);
     setVoiceExplanation('');
     setAudioURI(null);
@@ -274,6 +332,8 @@ export default function CameraModal() {
   };
   
   const handleUsePhoto = async () => {
+    if (!isMounted.current) return;
+    
     // Comprobamos que tengamos una explicación antes de continuar
     if (!voiceExplanation) {
       Alert.alert('Se requiere descripción', 'Por favor, describe el problema para continuar');
@@ -294,15 +354,21 @@ export default function CameraModal() {
         explanation: voiceExplanation
       }));
       
-      router.back();
-      
-      // Añadimos un pequeño retraso para evitar problemas de navegación
-      setTimeout(() => {
-        router.push('/(tabs)/diagnosis/result');
-      }, 100);
+      if (isMounted.current) {
+        router.back();
+        
+        // Añadimos un pequeño retraso para evitar problemas de navegación
+        setTimeout(() => {
+          if (isMounted.current) {
+            router.push('/(tabs)/diagnosis/result');
+          }
+        }, 100);
+      }
     } catch (error) {
       console.error('Error saving diagnosis data:', error);
-      Alert.alert('Error', 'No se pudieron guardar los datos del diagnóstico.');
+      if (isMounted.current) {
+        Alert.alert('Error', 'No se pudieron guardar los datos del diagnóstico.');
+      }
     }
   };
   
@@ -397,6 +463,7 @@ export default function CameraModal() {
                 <TouchableOpacity
                   style={[styles.actionButton, { backgroundColor: colors.warning[500] }]}
                   onPress={() => {
+                    if (!isMounted.current) return;
                     setVoiceExplanation('');
                     setAudioURI(null);
                     if (sound.current) {
@@ -449,13 +516,15 @@ export default function CameraModal() {
                 // Intenta abrir la cámara web
                 takePicture().catch(err => {
                   console.log("Error al acceder a la cámara web:", err);
-                  Alert.alert(
-                    "Error de cámara", 
-                    "No se pudo acceder a la cámara. Intenta seleccionar una imagen en su lugar.",
-                    [
-                      { text: "OK", onPress: () => pickImage() }
-                    ]
-                  );
+                  if (isMounted.current) {
+                    Alert.alert(
+                      "Error de cámara", 
+                      "No se pudo acceder a la cámara. Intenta seleccionar una imagen en su lugar.",
+                      [
+                        { text: "OK", onPress: () => pickImage() }
+                      ]
+                    );
+                  }
                 });
               }}
               style={{marginBottom: 20}}
