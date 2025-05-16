@@ -27,7 +27,6 @@ import Animated, {
   FadeInLeft
 } from 'react-native-reanimated';
 import * as Speech from 'expo-speech';
-import { discussDiagnosis } from '@/utils/geminiAI';
 
 export default function DiagnosisResultScreen() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -38,8 +37,6 @@ export default function DiagnosisResultScreen() {
   const [showDiscussionModal, setShowDiscussionModal] = useState(false);
   const [discussionText, setDiscussionText] = useState('');
   const [aiResponse, setAiResponse] = useState('');
-  const [isAiResponding, setIsAiResponding] = useState(false);
-  const [conversationHistory, setConversationHistory] = useState<{ role: 'user' | 'model', content: string }[]>([]);
   
   const progressAnimation = useSharedValue(0);
   
@@ -70,32 +67,24 @@ export default function DiagnosisResultScreen() {
   
   // Simulate AI analysis
   useEffect(() => {
-    const timer = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(timer);
-          setTimeout(() => {
-            setAnalysisState('success');
-            
-            // Inicializar el historial de conversación
-            const initialHistory = [
-              { 
-                role: 'user', 
-                content: 'Tengo un problema con el grifo de la cocina que está goteando constantemente.' 
-              },
-              { 
-                role: 'model', 
-                content: `He analizado tu problema y parece ser: ${analysisResult.issue}. La severidad es ${analysisResult.severity}. ¿Hay algo más que quieras saber sobre este diagnóstico?` 
-              }
-            ];
-            
-            setConversationHistory(initialHistory);
-          }, 500);
-          return 100;
-        }
-        return prev + 5;
-      });
-    }, 300);
+    let timer: NodeJS.Timeout;
+    
+    const startTimer = () => {
+      timer = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 100) {
+            clearInterval(timer);
+            setTimeout(() => {
+              setAnalysisState('success');
+            }, 500);
+            return 100;
+          }
+          return prev + 5;
+        });
+      }, 300);
+    };
+    
+    startTimer();
     
     return () => clearInterval(timer);
   }, []);
@@ -105,11 +94,11 @@ export default function DiagnosisResultScreen() {
       duration: 300,
       easing: Easing.bezier(0.25, 0.1, 0.25, 1),
     });
-  }, [progress]);
+  }, [progress, progressAnimation]);
   
   const progressStyle = useAnimatedStyle(() => {
     return {
-      width: `${progressAnimation.value * 100}%`,
+      width: `${progress}%`,
     };
   });
   
@@ -148,43 +137,13 @@ export default function DiagnosisResultScreen() {
     setShowDiscussionModal(false);
   };
   
-  const handleSendDiscussion = async () => {
+  const handleSendDiscussion = () => {
     if (discussionText.trim() === '') return;
     
-    // Agregar el mensaje del usuario al historial
-    const updatedHistory = [
-      ...conversationHistory,
-      { role: 'user', content: discussionText }
-    ];
-    setConversationHistory(updatedHistory);
-    
-    // Limpiar el campo de texto
-    setDiscussionText('');
-    
-    // Mostrar que la IA está respondiendo
-    setIsAiResponding(true);
-    
-    try {
-      // En una implementación real, usaríamos la API de Gemini
-      // Aquí simulamos una respuesta
-      setTimeout(() => {
-        const response = 'Entiendo tu preocupación. Basado en la imagen y tu descripción, sigo considerando que el problema es con el sifón, pero también revisaré si hay problemas adicionales en las conexiones de suministro de agua. ¿Hay algún otro detalle que quieras compartir?';
-        
-        // Agregar la respuesta de la IA al historial
-        const finalHistory = [
-          ...updatedHistory,
-          { role: 'model', content: response }
-        ];
-        setConversationHistory(finalHistory);
-        
-        // Actualizar la respuesta de la IA
-        setAiResponse(response);
-        setIsAiResponding(false);
-      }, 1500);
-    } catch (error) {
-      console.error('Error al obtener respuesta de la IA:', error);
-      setIsAiResponding(false);
-    }
+    // Simulamos una respuesta de la IA
+    setTimeout(() => {
+      setAiResponse('Entiendo tu preocupación. Basado en la imagen y tu descripción, sigo considerando que el problema es con el sifón, pero también revisaré si hay problemas adicionales en las conexiones de suministro de agua. ¿Hay algún otro detalle que quieras compartir?');
+    }, 1500);
   };
   
   const speakText = (text: string) => {
@@ -555,33 +514,16 @@ export default function DiagnosisResultScreen() {
                 Si tienes dudas sobre el diagnóstico o quieres proporcionar más información, escríbela aquí:
               </Typography>
               
-              {conversationHistory.map((message, index) => (
-                <View 
-                  key={index} 
-                  style={[
-                    styles.messageCard,
-                    message.role === 'model' ? styles.aiMessageCard : styles.userMessageCard,
-                    { backgroundColor: message.role === 'model' ? colors.primary[50] : colors.card }
-                  ]}
-                >
-                  <View style={styles.messageHeader}>
-                    <Typography variant="body2" weight="bold">
-                      {message.role === 'model' ? 'Diagnóstico de IA' : 'Tú'}
-                    </Typography>
-                    {message.role === 'model' && (
-                      <TouchableOpacity
-                        style={styles.speakButton}
-                        onPress={() => Speech.speak(message.content, { language: 'es' })}
-                      >
-                        <Mic size={16} color={colors.primary[500]} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <Typography variant="body2">
-                    {message.content}
+              <Card style={styles.messageCard}>
+                <View style={styles.messageHeader}>
+                  <Typography variant="body2" weight="bold">
+                    Diagnóstico de IA
                   </Typography>
                 </View>
-              ))}
+                <Typography variant="body2">
+                  {analysisResult.issue}
+                </Typography>
+              </Card>
               
               <View style={styles.inputContainer}>
                 <TextInput
@@ -597,10 +539,27 @@ export default function DiagnosisResultScreen() {
                   size="sm"
                   onPress={handleSendDiscussion}
                   style={styles.sendButton}
-                  loading={isAiResponding}
-                  disabled={isAiResponding || discussionText.trim() === ''}
                 />
               </View>
+              
+              {aiResponse && (
+                <Card style={[styles.messageCard, styles.aiMessageCard]}>
+                  <View style={styles.messageHeader}>
+                    <Typography variant="body2" weight="bold">
+                      Respuesta de IA
+                    </Typography>
+                    <TouchableOpacity
+                      style={styles.speakButton}
+                      onPress={() => speakText(aiResponse)}
+                    >
+                      <Mic size={16} color={colors.primary[500]} />
+                    </TouchableOpacity>
+                  </View>
+                  <Typography variant="body2">
+                    {aiResponse}
+                  </Typography>
+                </Card>
+              )}
             </ScrollView>
             
             <Button
@@ -848,22 +807,15 @@ const styles = StyleSheet.create({
   },
   messageCard: {
     marginBottom: Layout.spacing.md,
-    padding: Layout.spacing.md,
-    borderRadius: Layout.borderRadius.md,
-  },
-  userMessageCard: {
-    alignSelf: 'flex-end',
-    maxWidth: '80%',
-  },
-  aiMessageCard: {
-    alignSelf: 'flex-start',
-    maxWidth: '80%',
   },
   messageHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Layout.spacing.sm,
+  },
+  aiMessageCard: {
+    backgroundColor: Colors.light.primary[50],
   },
   inputContainer: {
     marginBottom: Layout.spacing.lg,
