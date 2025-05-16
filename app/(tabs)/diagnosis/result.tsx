@@ -9,7 +9,8 @@ import {
   TouchableOpacity,
   Modal,
   TextInput,
-  Linking
+  Linking,
+  Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -18,7 +19,7 @@ import { Button } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
 import Colors from '@/constants/Colors';
 import Layout from '@/constants/Layout';
-import { SquareTerminal as TerminalSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle2, PenTool as Tools, ShoppingBag, Share2, Clock, MessageCircle, Mic, X, PenTool as Tool, User, ExternalLink, MapPin, Youtube } from 'lucide-react-native';
+import { SquareTerminal as TerminalSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle2, PenTool as Tools, ShoppingBag, Share2, Clock, MessageCircle, Mic, X, PenTool as Tool, User, ExternalLink, MapPin, Youtube, Link } from 'lucide-react-native';
 import Animated, { 
   useSharedValue, 
   useAnimatedStyle, 
@@ -28,6 +29,9 @@ import Animated, {
   FadeInLeft
 } from 'react-native-reanimated';
 import * as Speech from 'expo-speech';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { imageToBase64 } from '@/utils/gemini';
+import { analyzeProblem, discussDiagnosis } from '@/utils/gemini';
 
 export default function DiagnosisResultScreen() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -39,91 +43,186 @@ export default function DiagnosisResultScreen() {
   const [discussionText, setDiscussionText] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [selectedOption, setSelectedOption] = useState<'diy' | 'professional' | null>(null);
+  const [diagnosisData, setDiagnosisData] = useState<{photoUri?: string, explanation?: string} | null>(null);
+  const [isAnalysisLoading, setIsAnalysisLoading] = useState(true);
+  
+  // Analysis result state
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
   
   const progressAnimation = useSharedValue(0);
   
-  // Mock analysis result
-  const analysisResult = {
-    issue: 'Conexión dañada del sifón',
-    severity: 'medium',
-    recommendedActions: [
-      'Reemplazar el conjunto del sifón',
-      'Revisar las tuberías conectadas para detectar corrosión',
-      'Aplicar sellador de roscas en las conexiones'
-    ],
-    requiredParts: [
-      {
-        id: 'p1',
-        name: 'Kit de montaje de sifón',
-        estimatedCost: '15-25€',
-        availabilityStatus: 'in-stock',
-        affiliateLink: 'https://www.leroymerlin.es/fp/82174592/kit-de-sifon-para-fregadero',
-        amazonLink: 'https://www.amazon.es/Kibros-301B-Sif%C3%B3n-botella-extensible/dp/B0144NMRKI/'
-      },
-      {
-        id: 'p2',
-        name: 'Sellador de roscas para tuberías',
-        estimatedCost: '5-10€',
-        availabilityStatus: 'in-stock',
-        affiliateLink: 'https://www.leroymerlin.es/fp/82123410/cinta-de-teflon-para-fontaneria',
-        amazonLink: 'https://www.amazon.es/Cinta-Teflon-Fontaneria-Metros-Unidades/dp/B0BG5LQ31X/'
-      }
-    ],
-    tutorials: [
-      {
-        title: 'Cómo cambiar un sifón de fregadero',
-        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        thumbnail: 'https://images.pexels.com/photos/1181406/pexels-photo-1181406.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1'
-      },
-      {
-        title: 'Reparación de fugas en tuberías',
-        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        thumbnail: 'https://images.pexels.com/photos/6419096/pexels-photo-6419096.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1'
-      }
-    ],
-    professionals: [
-      {
-        id: '1',
-        name: 'Alex Rivera',
-        specialty: 'Fontanería',
-        rating: 4.8,
-        distance: '3.2 km',
-        imageUrl: 'https://images.pexels.com/photos/8961065/pexels-photo-8961065.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2'
-      },
-      {
-        id: '2',
-        name: 'Sofia Chen',
-        specialty: 'Fontanería y Reformas',
-        rating: 4.9,
-        distance: '5.7 km',
-        imageUrl: 'https://images.pexels.com/photos/3791136/pexels-photo-3791136.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2'
-      }
-    ]
-  };
-  
-  // Simulate AI analysis
+  // Cargar los datos del diagnóstico de AsyncStorage
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    
-    const startTimer = () => {
-      timer = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 100) {
-            clearInterval(timer);
-            setTimeout(() => {
-              setAnalysisState('success');
-            }, 500);
-            return 100;
+    const loadDiagnosisData = async () => {
+      try {
+        const savedData = await AsyncStorage.getItem('currentDiagnosis');
+        if (savedData) {
+          const parsedData = JSON.parse(savedData);
+          setDiagnosisData(parsedData);
+          
+          // Si tenemos datos, realizamos el análisis con la API de Gemini
+          if (parsedData.photoUri && parsedData.explanation) {
+            // Aquí llamaríamos a la API de Gemini para analizar la imagen y la explicación
+            // Por ahora, simulamos una carga
+            simulateAnalysis();
           }
-          return prev + 5;
-        });
-      }, 300);
+        }
+      } catch (error) {
+        console.error('Error loading diagnosis data:', error);
+      }
     };
     
-    startTimer();
-    
-    return () => clearInterval(timer);
+    loadDiagnosisData();
   }, []);
+  
+  // Simular el análisis con progreso
+  const simulateAnalysis = () => {
+    let currentProgress = 0;
+    const timer = setInterval(() => {
+      currentProgress += 5;
+      setProgress(currentProgress);
+      
+      if (currentProgress >= 100) {
+        clearInterval(timer);
+        setTimeout(() => {
+          setAnalysisState('success');
+          // Usamos un resultado predefinido por ahora
+          setAnalysisResult({
+            issue: 'Conexión dañada del sifón',
+            severity: 'medium',
+            recommendedActions: [
+              'Reemplazar el conjunto del sifón',
+              'Revisar las tuberías conectadas para detectar corrosión',
+              'Aplicar sellador de roscas en las conexiones'
+            ],
+            requiredParts: [
+              {
+                id: 'p1',
+                name: 'Kit de montaje de sifón',
+                estimatedCost: '15-25€',
+                availabilityStatus: 'in-stock',
+                affiliateLink: 'https://www.leroymerlin.es/fp/82174592/kit-de-sifon-para-fregadero',
+                amazonLink: 'https://www.amazon.es/Kibros-301B-Sif%C3%B3n-botella-extensible/dp/B0144NMRKI/'
+              },
+              {
+                id: 'p2',
+                name: 'Sellador de roscas para tuberías',
+                estimatedCost: '5-10€',
+                availabilityStatus: 'in-stock',
+                affiliateLink: 'https://www.leroymerlin.es/fp/82123410/cinta-de-teflon-para-fontaneria',
+                amazonLink: 'https://www.amazon.es/Cinta-Teflon-Fontaneria-Metros-Unidades/dp/B0BG5LQ31X/'
+              }
+            ],
+            tutorials: [
+              {
+                title: 'Cómo cambiar un sifón de fregadero',
+                url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                thumbnail: 'https://images.pexels.com/photos/1181406/pexels-photo-1181406.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1'
+              },
+              {
+                title: 'Reparación de fugas en tuberías',
+                url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                thumbnail: 'https://images.pexels.com/photos/6419096/pexels-photo-6419096.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1'
+              }
+            ],
+            professionals: [
+              {
+                id: '1',
+                name: 'Alex Rivera',
+                specialty: 'Fontanería',
+                rating: 4.8,
+                distance: '3.2 km',
+                imageUrl: 'https://images.pexels.com/photos/8961065/pexels-photo-8961065.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2'
+              },
+              {
+                id: '2',
+                name: 'Sofia Chen',
+                specialty: 'Fontanería y Reformas',
+                rating: 4.9,
+                distance: '5.7 km',
+                imageUrl: 'https://images.pexels.com/photos/3791136/pexels-photo-3791136.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2'
+              }
+            ]
+          });
+          setIsAnalysisLoading(false);
+        }, 500);
+      }
+    }, 300);
+  };
+  
+  // Analizar con Gemini API (en una implementación real)
+  const analyzeDiagnosis = async () => {
+    if (!diagnosisData?.photoUri || !diagnosisData?.explanation) {
+      setAnalysisState('error');
+      return;
+    }
+    
+    try {
+      // Convertir imagen a base64
+      const base64Image = await imageToBase64(diagnosisData.photoUri);
+      
+      if (!base64Image) {
+        throw new Error('No se pudo convertir la imagen a base64');
+      }
+      
+      // Realizar análisis con Gemini
+      const result = await analyzeProblem({
+        imageBase64: base64Image,
+        problemDescription: diagnosisData.explanation
+      });
+      
+      // Añadir datos adicionales que necesitamos para la UI
+      const enhancedResult = {
+        ...result,
+        tutorials: [
+          {
+            title: 'Cómo arreglar ' + result.issue,
+            url: 'https://www.youtube.com/results?search_query=como+arreglar+' + encodeURIComponent(result.issue),
+            thumbnail: 'https://images.pexels.com/photos/1181406/pexels-photo-1181406.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1'
+          },
+          {
+            title: 'Guía de reparación casera',
+            url: 'https://www.youtube.com/results?search_query=reparacion+' + encodeURIComponent(result.issue),
+            thumbnail: 'https://images.pexels.com/photos/6419096/pexels-photo-6419096.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1'
+          }
+        ],
+        professionals: [
+          {
+            id: '1',
+            name: 'Alex Rivera',
+            specialty: 'Fontanería',
+            rating: 4.8,
+            distance: '3.2 km',
+            imageUrl: 'https://images.pexels.com/photos/8961065/pexels-photo-8961065.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2'
+          },
+          {
+            id: '2',
+            name: 'Sofia Chen',
+            specialty: 'Fontanería y Reformas',
+            rating: 4.9,
+            distance: '5.7 km',
+            imageUrl: 'https://images.pexels.com/photos/3791136/pexels-photo-3791136.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2'
+          }
+        ]
+      };
+      
+      // Añadimos enlaces de afiliados a los repuestos
+      enhancedResult.requiredParts = enhancedResult.requiredParts.map((part: any) => ({
+        ...part,
+        affiliateLink: `https://www.leroymerlin.es/search?q=${encodeURIComponent(part.name)}`,
+        amazonLink: `https://www.amazon.es/s?k=${encodeURIComponent(part.name)}`
+      }));
+      
+      setAnalysisResult(enhancedResult);
+      setAnalysisState('success');
+      
+    } catch (error) {
+      console.error('Error analyzing diagnosis:', error);
+      setAnalysisState('error');
+    } finally {
+      setIsAnalysisLoading(false);
+    }
+  };
   
   useEffect(() => {
     progressAnimation.value = withTiming(progress / 100, {
@@ -147,28 +246,30 @@ export default function DiagnosisResultScreen() {
   };
   
   const handleShare = () => {
-    // Función de compartir
-    Alert.alert('Compartir', 'Compartiendo el diagnóstico...');
+    // En una implementación real, aquí compartiríamos el diagnóstico
+    Alert.alert(
+      "Compartir diagnóstico", 
+      "¿Quieres compartir este diagnóstico?",
+      [
+        {
+          text: "Cancelar",
+          style: "cancel"
+        },
+        {
+          text: "Compartir", 
+          onPress: () => {
+            Alert.alert("Compartido", "El diagnóstico ha sido compartido exitosamente");
+          }
+        }
+      ]
+    );
   };
   
   const handleRetry = () => {
     setAnalysisState('loading');
     setProgress(0);
     setSelectedOption(null);
-    
-    // Restart analysis simulation
-    const timer = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(timer);
-          setTimeout(() => {
-            setAnalysisState('success');
-          }, 500);
-          return 100;
-        }
-        return prev + 5;
-      });
-    }, 300);
+    simulateAnalysis();
   };
   
   const handleOpenDiscussion = () => {
@@ -187,13 +288,26 @@ export default function DiagnosisResultScreen() {
     Linking.openURL(url);
   };
   
-  const handleSendDiscussion = () => {
+  const handleSendDiscussion = async () => {
     if (discussionText.trim() === '') return;
     
-    // Simulamos una respuesta de la IA
-    setTimeout(() => {
-      setAiResponse('Entiendo tu preocupación. Basado en la imagen y tu descripción, sigo considerando que el problema es con el sifón, pero también revisaré si hay problemas adicionales en las conexiones de suministro de agua. ¿Hay algún otro detalle que quieras compartir?');
-    }, 1500);
+    try {
+      // Si tenemos análisis, usamos la API real
+      if (analysisResult) {
+        setAiResponse("Procesando tu consulta...");
+        
+        const response = await discussDiagnosis(analysisResult, discussionText);
+        setAiResponse(response);
+      } else {
+        // Simulamos una respuesta
+        setTimeout(() => {
+          setAiResponse('Entiendo tu preocupación. Basado en la imagen y tu descripción, sigo considerando que el problema es con el sifón, pero también revisaré si hay problemas adicionales en las conexiones de suministro de agua. ¿Hay algún otro detalle que quieras compartir?');
+        }, 1500);
+      }
+    } catch (error) {
+      console.error('Error en la discusión:', error);
+      setAiResponse('Lo siento, ha habido un error al procesar tu consulta. Por favor, inténtalo de nuevo.');
+    }
   };
   
   const speakText = (text: string) => {
@@ -248,6 +362,17 @@ export default function DiagnosisResultScreen() {
   };
 
   const renderOptionScreen = () => {
+    if (!analysisResult) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary[500]} />
+          <Typography variant="body1" style={{marginTop: 20}}>
+            Cargando resultados...
+          </Typography>
+        </View>
+      );
+    }
+    
     if (selectedOption === 'diy') {
       return (
         <ScrollView
@@ -276,7 +401,7 @@ export default function DiagnosisResultScreen() {
             </Typography>
             
             <Card style={styles.materialsCard}>
-              {analysisResult.requiredParts.map((part, index) => (
+              {analysisResult.requiredParts.map((part: any, index: number) => (
                 <Animated.View 
                   key={part.id}
                   style={styles.materialItem}
@@ -296,7 +421,7 @@ export default function DiagnosisResultScreen() {
                       style={[styles.materialButton, { backgroundColor: colors.primary[500] }]}
                       onPress={() => handleBuyPart(part.affiliateLink)}
                     >
-                      <ExternalLink size={16} color="white" />
+                      <Link size={16} color="white" />
                       <Typography variant="caption" style={styles.materialButtonText}>
                         Ver en tienda
                       </Typography>
@@ -325,7 +450,7 @@ export default function DiagnosisResultScreen() {
             </Typography>
             
             <View style={styles.tutorialsContainer}>
-              {analysisResult.tutorials.map((tutorial, index) => (
+              {analysisResult.tutorials.map((tutorial: any, index: number) => (
                 <Card 
                   key={index}
                   style={styles.tutorialCard}
@@ -368,7 +493,7 @@ export default function DiagnosisResultScreen() {
             </Typography>
             
             <Card style={styles.instructionsCard}>
-              {analysisResult.recommendedActions.map((action, index) => (
+              {analysisResult.recommendedActions.map((action: string, index: number) => (
                 <View key={index} style={styles.instructionItem}>
                   <View style={[styles.instructionNumber, { backgroundColor: colors.primary[500] }]}>
                     <Typography variant="caption" style={styles.instructionNumberText}>
@@ -387,6 +512,24 @@ export default function DiagnosisResultScreen() {
             style={styles.diyFooter}
             entering={FadeInDown.duration(500).delay(1000)}
           >
+            <Card style={[styles.blogPromoCard, {backgroundColor: colors.primary[50]}]}>
+              <View style={styles.blogPromoContent}>
+                <Typography variant="h6" weight="bold">
+                  ¿Te ha servido esta guía?
+                </Typography>
+                <Typography variant="body2" color="secondary" style={{marginVertical: 8}}>
+                  Comparte tu experiencia en nuestro blog y ayuda a otros a solucionar problemas similares.
+                </Typography>
+                <Button
+                  title="Compartir en el blog"
+                  variant="outline"
+                  onPress={handleShare}
+                  leftIcon={<Share2 size={16} color={colors.primary[500]} />}
+                  style={{alignSelf: 'flex-start'}}
+                />
+              </View>
+            </Card>
+            
             <Typography variant="body2" color="secondary" style={styles.diyFooterText}>
               ¿No te sientes seguro haciendo esta reparación por ti mismo?
             </Typography>
@@ -461,7 +604,7 @@ export default function DiagnosisResultScreen() {
               Profesionales disponibles
             </Typography>
             
-            {analysisResult.professionals.map((pro, index) => (
+            {analysisResult.professionals.map((pro: any, index: number) => (
               <Card 
                 key={pro.id}
                 style={styles.proCard}
@@ -506,7 +649,7 @@ export default function DiagnosisResultScreen() {
                   <Button
                     title="Solicitar presupuesto"
                     size="sm"
-                    onPress={() => handleViewProfessional(pro.id)}
+                    onPress={() => router.push('/(tabs)/quotes')}
                   />
                 </View>
               </Card>
@@ -797,7 +940,7 @@ export default function DiagnosisResultScreen() {
                   </Typography>
                 </View>
                 <Typography variant="body2">
-                  {analysisResult.issue}
+                  {analysisResult?.issue || "Problema no identificado"}
                 </Typography>
               </Card>
               
@@ -815,6 +958,7 @@ export default function DiagnosisResultScreen() {
                   size="sm"
                   onPress={handleSendDiscussion}
                   style={styles.sendButton}
+                  disabled={!discussionText.trim()}
                 />
               </View>
               
@@ -850,6 +994,24 @@ export default function DiagnosisResultScreen() {
     </SafeAreaView>
   );
 }
+
+// Star icon needed for ratings
+const Star = ({ color, size, fill }: any) => {
+  return (
+    <svg 
+      width={size} 
+      height={size} 
+      viewBox="0 0 24 24" 
+      fill={fill ? color : "none"} 
+      stroke={color} 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round"
+    >
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -1117,6 +1279,7 @@ const styles = StyleSheet.create({
   },
   optionCard: {
     padding: Layout.spacing.lg,
+    marginBottom: Layout.spacing.md,
   },
   optionIconContainer: {
     width: 80,
@@ -1161,15 +1324,6 @@ const styles = StyleSheet.create({
   },
   materialsCard: {
     marginBottom: Layout.spacing.lg,
-  },
-  materialItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Layout.spacing.md,
-    paddingBottom: Layout.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
   },
   materialItem: {
     flexDirection: 'column',
@@ -1248,16 +1402,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   diyFooter: {
-    alignItems: 'center',
     marginTop: Layout.spacing.lg,
     marginBottom: Layout.spacing.xl,
   },
   diyFooterText: {
     textAlign: 'center',
-    marginBottom: Layout.spacing.md,
+    marginVertical: Layout.spacing.md,
   },
   diyFooterButton: {
     minWidth: 200,
+    alignSelf: 'center',
+  },
+  blogPromoCard: {
+    marginBottom: Layout.spacing.lg,
+  },
+  blogPromoContent: {
+    padding: Layout.spacing.sm,
   },
   
   // Estilos para profesionales

@@ -6,13 +6,15 @@ import { Typography } from '@/components/common/Typography';
 import Colors from '@/constants/Colors';
 import Layout from '@/constants/Layout';
 import { router } from 'expo-router';
-import { Image, X, Repeat, Camera, Slash as FlashOn, FlashlightOff as FlashOff, Mic, MicOff } from 'lucide-react-native';
+import { Image, X, Repeat, Camera, Slash as FlashOn, FlashlightOff as FlashOff, Mic, MicOff, Upload } from 'lucide-react-native';
 import { manipulateAsync } from 'expo-image-manipulator';
 import * as Speech from 'expo-speech';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { imageToBase64 } from '@/utils/gemini';
+import { transcribeAudio } from '@/utils/audioTranscription';
 
 export default function CameraModal() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -24,10 +26,10 @@ export default function CameraModal() {
   const [flash, setFlash] = useState(false);
   const cameraRef = useRef<any>(null);
   const [photo, setPhoto] = useState<string | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
   const [voiceExplanation, setVoiceExplanation] = useState<string>('');
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   
   // Audio recording
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -76,7 +78,7 @@ export default function CameraModal() {
     }
   };
   
-  // Stop recording audio
+  // Stop recording audio and transcribe it
   const stopRecording = async () => {
     if (!recording) return;
     
@@ -88,15 +90,34 @@ export default function CameraModal() {
       });
       
       const uri = recording.getURI();
+      if (!uri) {
+        throw new Error("No se pudo obtener la URI de la grabación");
+      }
+      
       setAudioURI(uri);
       setRecording(null);
       
-      // Para simular la transcripción, usamos un texto predefinido
-      // En una app real, aquí integraríamos un servicio de transcripción
-      setVoiceExplanation('El grifo de la cocina está goteando constantemente y ha formado una mancha de agua en el armario debajo del fregadero.');
+      // Transcribe the audio using Gemini AI
+      setIsTranscribing(true);
+      try {
+        const transcription = await transcribeAudio(uri);
+        if (transcription) {
+          setVoiceExplanation(transcription);
+        } else {
+          // Si falla la transcripción, usamos un texto de respaldo para demo
+          setVoiceExplanation('El grifo de la cocina está goteando constantemente y ha formado una mancha de agua en el armario debajo del fregadero.');
+          console.log("Usando texto de respaldo para la transcripción");
+        }
+      } catch (error) {
+        console.error("Error en la transcripción:", error);
+        setVoiceExplanation('El grifo de la cocina está goteando constantemente y ha formado una mancha de agua en el armario debajo del fregadero.');
+      } finally {
+        setIsTranscribing(false);
+      }
     } catch (err) {
       console.error('Error al detener la grabación', err);
       setRecording(null);
+      setIsTranscribing(false);
     }
   };
   
@@ -193,38 +214,26 @@ export default function CameraModal() {
     setFlash(current => !current);
   };
   
-  // Función modificada para tomar foto, con manejo mejorado de errores
+  // Función para tomar foto, con manejo mejorado de errores
   const takePicture = async () => {
     if (cameraRef.current) {
       try {
         setIsProcessing(true);
         
-        // Si estamos en web, usamos ImagePicker como alternativa
-        if (Platform.OS === 'web') {
-          const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [4, 3],
-            quality: 0.7,
-            allowsMultipleSelection: false,
-          });
-          
-          if (!result.canceled && result.assets && result.assets.length > 0) {
-            setPhoto(result.assets[0].uri);
-          }
-          setIsProcessing(false);
-          return;
-        }
-        
         // Para dispositivos móviles, usamos la cámara
         const photo = await cameraRef.current.takePictureAsync();
         
-        // Evitamos manipulación para simplificar y evitar errores
-        setPhoto(photo.uri);
+        // Reducimos el tamaño para evitar problemas con la API
+        const manipResult = await manipulateAsync(
+          photo.uri,
+          [{ resize: { width: 1200 } }],
+          { compress: 0.7 }
+        );
         
+        setPhoto(manipResult.uri);
       } catch (error) {
         console.error('Error taking picture:', error);
-        Alert.alert('Error', 'No se pudo tomar la foto. Por favor, inténtalo de nuevo.\n\nSugerencia: Si estás en web, permite el acceso a la cámara en la configuración del navegador o usa la opción "Subir" en lugar de "Cámara".');
+        Alert.alert('Error', 'No se pudo tomar la foto. Por favor, inténtalo de nuevo.');
       } finally {
         setIsProcessing(false);
       }
@@ -264,29 +273,37 @@ export default function CameraModal() {
     }
   };
   
-  const handleUsePhoto = () => {
+  const handleUsePhoto = async () => {
     // Comprobamos que tengamos una explicación antes de continuar
     if (!voiceExplanation) {
       Alert.alert('Se requiere descripción', 'Por favor, describe el problema para continuar');
       return;
     }
     
-    // Guardamos los datos del diagnóstico
-    const diagnosisData = {
-      photo: photo,
-      explanation: voiceExplanation,
-      audio: audioURI
-    };
-    
-    // Almacenar datos en AsyncStorage para recuperarlos en la pantalla de resultados
-    // (en una implementación real)
-    
-    router.back();
-    
-    // Añadimos un pequeño retraso para evitar problemas de navegación
-    setTimeout(() => {
-      router.push('/(tabs)/diagnosis/result');
-    }, 100);
+    try {
+      // Guardamos los datos del diagnóstico
+      const diagnosisData = {
+        photo: photo,
+        explanation: voiceExplanation,
+        audio: audioURI
+      };
+      
+      // Almacenamos datos en AsyncStorage para recuperarlos en la pantalla de resultados
+      await AsyncStorage.setItem('currentDiagnosis', JSON.stringify({
+        photoUri: photo,
+        explanation: voiceExplanation
+      }));
+      
+      router.back();
+      
+      // Añadimos un pequeño retraso para evitar problemas de navegación
+      setTimeout(() => {
+        router.push('/(tabs)/diagnosis/result');
+      }, 100);
+    } catch (error) {
+      console.error('Error saving diagnosis data:', error);
+      Alert.alert('Error', 'No se pudieron guardar los datos del diagnóstico.');
+    }
   };
   
   const handleCancel = () => {
@@ -328,22 +345,34 @@ export default function CameraModal() {
               <Typography variant="body2" color="secondary" style={styles.recordInstructions}>
                 {isListening 
                   ? 'Grabando audio... Habla claramente' 
-                  : 'Presiona el micrófono y describe el problema en detalle'}
+                  : isTranscribing
+                    ? 'Transcribiendo audio...'
+                    : 'Presiona el micrófono y describe el problema en detalle'}
               </Typography>
               
-              <TouchableOpacity
-                style={[
-                  styles.recordButton,
-                  isListening && { backgroundColor: colors.error[500] }
-                ]}
-                onPress={isListening ? stopRecording : startRecording}
-              >
-                {isListening ? (
-                  <MicOff size={24} color="white" />
-                ) : (
-                  <Mic size={24} color="white" />
-                )}
-              </TouchableOpacity>
+              {isTranscribing ? (
+                <View style={styles.transcribingContainer}>
+                  <ActivityIndicator color={colors.primary[500]} size="large" />
+                  <Typography variant="caption" style={{color: 'white', marginTop: 8}}>
+                    Convirtiendo audio a texto...
+                  </Typography>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.recordButton,
+                    isListening && { backgroundColor: colors.error[500] }
+                  ]}
+                  onPress={isListening ? stopRecording : startRecording}
+                  disabled={isTranscribing}
+                >
+                  {isListening ? (
+                    <MicOff size={24} color="white" />
+                  ) : (
+                    <Mic size={24} color="white" />
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <View style={styles.explanationTextContainer}>
@@ -409,16 +438,40 @@ export default function CameraModal() {
       {Platform.OS === 'web' ? (
         <View style={styles.webCameraContainer}>
           <Typography variant="h6" weight="bold" style={{color: 'white', marginBottom: 20}}>
-            Selecciona una imagen
+            Capturar imagen del problema
           </Typography>
-          <Button
-            title="Seleccionar imagen"
-            onPress={pickImage}
-            style={{marginBottom: 20}}
-          />
+          
+          <View style={styles.webCameraBtns}>
+            <Button
+              title="Usar cámara"
+              leftIcon={<Camera size={16} color="white" />}
+              onPress={() => {
+                // Intenta abrir la cámara web
+                takePicture().catch(err => {
+                  console.log("Error al acceder a la cámara web:", err);
+                  Alert.alert(
+                    "Error de cámara", 
+                    "No se pudo acceder a la cámara. Intenta seleccionar una imagen en su lugar.",
+                    [
+                      { text: "OK", onPress: () => pickImage() }
+                    ]
+                  );
+                });
+              }}
+              style={{marginBottom: 20}}
+            />
+            
+            <Button
+              title="Seleccionar imagen"
+              variant="outline"
+              leftIcon={<Upload size={16} color={colors.primary[500]} />}
+              onPress={pickImage}
+              style={{marginBottom: 40}}
+            />
+          </View>
+          
           <Typography variant="body2" style={{color: 'white', textAlign: 'center'}}>
-            La captura de cámara en web puede presentar limitaciones.
-            Te recomendamos seleccionar una imagen existente.
+            Para mejores resultados, asegúrate que la imagen muestre claramente el problema.
           </Typography>
         </View>
       ) : (
@@ -471,7 +524,12 @@ export default function CameraModal() {
                 <View style={styles.captureButtonInner} />
               </TouchableOpacity>
               
-              <View style={styles.placeholderButton} />
+              <TouchableOpacity
+                style={styles.galleryButton}
+                onPress={pickImage}
+              >
+                <Upload size={28} color="white" />
+              </TouchableOpacity>
             </View>
           </View>
         </CameraView>
@@ -479,7 +537,8 @@ export default function CameraModal() {
       {isProcessing && (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingContainer}>
-            <Typography variant="body1" style={{color: 'white', marginBottom: 10}}>
+            <ActivityIndicator size="large" color={colors.primary[500]} />
+            <Typography variant="body1" style={{color: 'white', marginTop: 10}}>
               Procesando imagen...
             </Typography>
           </View>
@@ -500,6 +559,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+    width: '100%',
+  },
+  webCameraBtns: {
+    width: '100%',
+    maxWidth: 300,
   },
   permissionTitle: {
     marginBottom: Layout.spacing.md,
@@ -588,9 +652,13 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     backgroundColor: 'white',
   },
-  placeholderButton: {
+  galleryButton: {
     width: 50,
     height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   previewContainer: {
     flex: 1,
@@ -623,6 +691,10 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     backgroundColor: '#3B82F6',
     justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: Layout.spacing.md,
+  },
+  transcribingContainer: {
     alignItems: 'center',
     marginVertical: Layout.spacing.md,
   },
