@@ -33,6 +33,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { imageToBase64 } from '@/utils/gemini';
 import { analyzeProblem, discussDiagnosis } from '@/utils/gemini';
 
+// Star icon needed for ratings
+const Star = ({ color, size, fill }: any) => {
+  return (
+    <svg 
+      width={size} 
+      height={size} 
+      viewBox="0 0 24 24" 
+      fill={fill ? color : "none"} 
+      stroke={color} 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round"
+    >
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  );
+};
+
 export default function DiagnosisResultScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
@@ -51,12 +69,17 @@ export default function DiagnosisResultScreen() {
   
   const progressAnimation = useSharedValue(0);
   
-  // Cargar los datos del diagnóstico de AsyncStorage
+  // Add a mounted ref to prevent state updates after unmount
+  const isMounted = React.useRef(true);
+  
   useEffect(() => {
+    // Set mounted flag
+    isMounted.current = true;
+    
     const loadDiagnosisData = async () => {
       try {
         const savedData = await AsyncStorage.getItem('currentDiagnosis');
-        if (savedData) {
+        if (savedData && isMounted.current) {
           const parsedData = JSON.parse(savedData);
           setDiagnosisData(parsedData);
           
@@ -73,6 +96,13 @@ export default function DiagnosisResultScreen() {
     };
     
     loadDiagnosisData();
+    
+    // Cleanup function that runs on unmount
+    return () => {
+      isMounted.current = false;
+      // Cancel any pending speech
+      Speech.stop();
+    };
   }, []);
   
   // Simular el análisis con progreso
@@ -80,80 +110,92 @@ export default function DiagnosisResultScreen() {
     let currentProgress = 0;
     const timer = setInterval(() => {
       currentProgress += 5;
-      setProgress(currentProgress);
+      
+      if (isMounted.current) {
+        setProgress(currentProgress);
+      }
       
       if (currentProgress >= 100) {
         clearInterval(timer);
         setTimeout(() => {
-          setAnalysisState('success');
-          // Usamos un resultado predefinido por ahora
-          setAnalysisResult({
-            issue: 'Conexión dañada del sifón',
-            severity: 'medium',
-            recommendedActions: [
-              'Reemplazar el conjunto del sifón',
-              'Revisar las tuberías conectadas para detectar corrosión',
-              'Aplicar sellador de roscas en las conexiones'
-            ],
-            requiredParts: [
-              {
-                id: 'p1',
-                name: 'Kit de montaje de sifón',
-                estimatedCost: '15-25€',
-                availabilityStatus: 'in-stock',
-                affiliateLink: 'https://www.leroymerlin.es/fp/82174592/kit-de-sifon-para-fregadero',
-                amazonLink: 'https://www.amazon.es/Kibros-301B-Sif%C3%B3n-botella-extensible/dp/B0144NMRKI/'
-              },
-              {
-                id: 'p2',
-                name: 'Sellador de roscas para tuberías',
-                estimatedCost: '5-10€',
-                availabilityStatus: 'in-stock',
-                affiliateLink: 'https://www.leroymerlin.es/fp/82123410/cinta-de-teflon-para-fontaneria',
-                amazonLink: 'https://www.amazon.es/Cinta-Teflon-Fontaneria-Metros-Unidades/dp/B0BG5LQ31X/'
-              }
-            ],
-            tutorials: [
-              {
-                title: 'Cómo cambiar un sifón de fregadero',
-                url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-                thumbnail: 'https://images.pexels.com/photos/1181406/pexels-photo-1181406.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1'
-              },
-              {
-                title: 'Reparación de fugas en tuberías',
-                url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-                thumbnail: 'https://images.pexels.com/photos/6419096/pexels-photo-6419096.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1'
-              }
-            ],
-            professionals: [
-              {
-                id: '1',
-                name: 'Alex Rivera',
-                specialty: 'Fontanería',
-                rating: 4.8,
-                distance: '3.2 km',
-                imageUrl: 'https://images.pexels.com/photos/8961065/pexels-photo-8961065.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2'
-              },
-              {
-                id: '2',
-                name: 'Sofia Chen',
-                specialty: 'Fontanería y Reformas',
-                rating: 4.9,
-                distance: '5.7 km',
-                imageUrl: 'https://images.pexels.com/photos/3791136/pexels-photo-3791136.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2'
-              }
-            ]
-          });
-          setIsAnalysisLoading(false);
+          if (isMounted.current) {
+            setAnalysisState('success');
+            // Usamos un resultado predefinido por ahora
+            setAnalysisResult({
+              issue: 'Conexión dañada del sifón',
+              severity: 'medium',
+              recommendedActions: [
+                'Reemplazar el conjunto del sifón',
+                'Revisar las tuberías conectadas para detectar corrosión',
+                'Aplicar sellador de roscas en las conexiones'
+              ],
+              requiredParts: [
+                {
+                  id: 'p1',
+                  name: 'Kit de montaje de sifón',
+                  estimatedCost: '15-25€',
+                  availabilityStatus: 'in-stock',
+                  affiliateLink: 'https://www.leroymerlin.es/fp/82174592/kit-de-sifon-para-fregadero',
+                  amazonLink: 'https://www.amazon.es/Kibros-301B-Sif%C3%B3n-botella-extensible/dp/B0144NMRKI/'
+                },
+                {
+                  id: 'p2',
+                  name: 'Sellador de roscas para tuberías',
+                  estimatedCost: '5-10€',
+                  availabilityStatus: 'in-stock',
+                  affiliateLink: 'https://www.leroymerlin.es/fp/82123410/cinta-de-teflon-para-fontaneria',
+                  amazonLink: 'https://www.amazon.es/Cinta-Teflon-Fontaneria-Metros-Unidades/dp/B0BG5LQ31X/'
+                }
+              ],
+              tutorials: [
+                {
+                  title: 'Cómo cambiar un sifón de fregadero',
+                  url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                  thumbnail: 'https://images.pexels.com/photos/1181406/pexels-photo-1181406.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1'
+                },
+                {
+                  title: 'Reparación de fugas en tuberías',
+                  url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                  thumbnail: 'https://images.pexels.com/photos/6419096/pexels-photo-6419096.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1'
+                }
+              ],
+              professionals: [
+                {
+                  id: '1',
+                  name: 'Alex Rivera',
+                  specialty: 'Fontanería',
+                  rating: 4.8,
+                  distance: '3.2 km',
+                  imageUrl: 'https://images.pexels.com/photos/8961065/pexels-photo-8961065.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2'
+                },
+                {
+                  id: '2',
+                  name: 'Sofia Chen',
+                  specialty: 'Fontanería y Reformas',
+                  rating: 4.9,
+                  distance: '5.7 km',
+                  imageUrl: 'https://images.pexels.com/photos/3791136/pexels-photo-3791136.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2'
+                }
+              ]
+            });
+            setIsAnalysisLoading(false);
+          }
         }, 500);
       }
     }, 300);
+    
+    // Clean up timer if component unmounts
+    return () => {
+      clearInterval(timer);
+    };
   };
   
   // Analizar con Gemini API (en una implementación real)
   const analyzeDiagnosis = async () => {
     if (!diagnosisData?.photoUri || !diagnosisData?.explanation) {
-      setAnalysisState('error');
+      if (isMounted.current) {
+        setAnalysisState('error');
+      }
       return;
     }
     
@@ -170,6 +212,9 @@ export default function DiagnosisResultScreen() {
         imageBase64: base64Image,
         problemDescription: diagnosisData.explanation
       });
+      
+      // Verificar si el componente sigue montado
+      if (!isMounted.current) return;
       
       // Añadir datos adicionales que necesitamos para la UI
       const enhancedResult = {
@@ -213,14 +258,20 @@ export default function DiagnosisResultScreen() {
         amazonLink: `https://www.amazon.es/s?k=${encodeURIComponent(part.name)}`
       }));
       
-      setAnalysisResult(enhancedResult);
-      setAnalysisState('success');
+      if (isMounted.current) {
+        setAnalysisResult(enhancedResult);
+        setAnalysisState('success');
+      }
       
     } catch (error) {
       console.error('Error analyzing diagnosis:', error);
-      setAnalysisState('error');
+      if (isMounted.current) {
+        setAnalysisState('error');
+      }
     } finally {
-      setIsAnalysisLoading(false);
+      if (isMounted.current) {
+        setIsAnalysisLoading(false);
+      }
     }
   };
   
@@ -266,6 +317,8 @@ export default function DiagnosisResultScreen() {
   };
   
   const handleRetry = () => {
+    if (!isMounted.current) return;
+    
     setAnalysisState('loading');
     setProgress(0);
     setSelectedOption(null);
@@ -289,7 +342,7 @@ export default function DiagnosisResultScreen() {
   };
   
   const handleSendDiscussion = async () => {
-    if (discussionText.trim() === '') return;
+    if (discussionText.trim() === '' || !isMounted.current) return;
     
     try {
       // Si tenemos análisis, usamos la API real
@@ -297,25 +350,38 @@ export default function DiagnosisResultScreen() {
         setAiResponse("Procesando tu consulta...");
         
         const response = await discussDiagnosis(analysisResult, discussionText);
-        setAiResponse(response);
+        
+        if (isMounted.current) {
+          setAiResponse(response);
+        }
       } else {
         // Simulamos una respuesta
+        setAiResponse("Procesando tu consulta...");
+        
         setTimeout(() => {
-          setAiResponse('Entiendo tu preocupación. Basado en la imagen y tu descripción, sigo considerando que el problema es con el sifón, pero también revisaré si hay problemas adicionales en las conexiones de suministro de agua. ¿Hay algún otro detalle que quieras compartir?');
+          if (isMounted.current) {
+            setAiResponse('Entiendo tu preocupación. Basado en la imagen y tu descripción, sigo considerando que el problema es con el sifón, pero también revisaré si hay problemas adicionales en las conexiones de suministro de agua. ¿Hay algún otro detalle que quieras compartir?');
+          }
         }, 1500);
       }
     } catch (error) {
       console.error('Error en la discusión:', error);
-      setAiResponse('Lo siento, ha habido un error al procesar tu consulta. Por favor, inténtalo de nuevo.');
+      if (isMounted.current) {
+        setAiResponse('Lo siento, ha habido un error al procesar tu consulta. Por favor, inténtalo de nuevo.');
+      }
     }
   };
   
   const speakText = (text: string) => {
-    Speech.speak(text, {
-      language: 'es',
-      pitch: 1.0,
-      rate: 0.9,
-    });
+    try {
+      Speech.speak(text, {
+        language: 'es',
+        pitch: 1.0,
+        rate: 0.9,
+      });
+    } catch (error) {
+      console.error('Error speaking text:', error);
+    }
   };
   
   const handleBuyPart = (url: string) => {
@@ -994,24 +1060,6 @@ export default function DiagnosisResultScreen() {
     </SafeAreaView>
   );
 }
-
-// Star icon needed for ratings
-const Star = ({ color, size, fill }: any) => {
-  return (
-    <svg 
-      width={size} 
-      height={size} 
-      viewBox="0 0 24 24" 
-      fill={fill ? color : "none"} 
-      stroke={color} 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
-    >
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  );
-};
 
 const styles = StyleSheet.create({
   container: {
