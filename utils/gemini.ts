@@ -40,10 +40,10 @@ export interface DiagnosisResult {
 export async function analyzeProblem(data: DiagnosisRequest): Promise<DiagnosisResult> {
   try {
     const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-    const model = process.env.EXPO_PUBLIC_GEMINI_MODEL;
+    const model = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-1.5-pro';
     
     if (!apiKey) {
-      throw new Error('API key is not defined');
+      throw new Error('API key no configurada en las variables de entorno');
     }
 
     // Construir el prompt para Gemini
@@ -150,13 +150,13 @@ export async function analyzeProblem(data: DiagnosisRequest): Promise<DiagnosisR
     if (!diagnosisResult.issue || !diagnosisResult.severity || 
         !Array.isArray(diagnosisResult.recommendedActions) ||
         !Array.isArray(diagnosisResult.requiredParts)) {
-      throw new Error('Invalid response format from Gemini API');
+      throw new Error('Formato de respuesta inválido de la API de Gemini');
     }
     
     return diagnosisResult;
     
   } catch (error) {
-    console.error('Error analyzing problem with Gemini:', error);
+    console.error('Error al analizar problema con Gemini:', error);
     // En caso de error, devolver un diagnóstico genérico
     return {
       issue: 'No se pudo analizar el problema. Por favor, inténtalo de nuevo.',
@@ -219,10 +219,10 @@ export async function discussDiagnosis(
 ): Promise<string> {
   try {
     const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-    const model = process.env.EXPO_PUBLIC_GEMINI_MODEL;
+    const model = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-1.5-pro';
     
     if (!apiKey) {
-      throw new Error('API key is not defined');
+      throw new Error('API key no configurada en las variables de entorno');
     }
 
     // Construir el prompt para la discusión

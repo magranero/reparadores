@@ -1,19 +1,25 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import Constants from 'expo-constants';
 
-// Acceder a las variables de entorno
-const apiKey = Constants.expoConfig?.extra?.GEMINI_API_KEY || 
-               process.env.EXPO_PUBLIC_GEMINI_API_KEY || 
-               '';
-const modelName = Constants.expoConfig?.extra?.GEMINI_MODEL || 
-                 process.env.EXPO_PUBLIC_GEMINI_MODEL || 
-                 'gemini-2.5-pro-preview-05-06';
+// Acceder a las variables de entorno de forma segura
+const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+const modelName = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-2.5-pro-preview-05-06';
 
-// Inicializar la API de Gemini
-const genAI = new GoogleGenerativeAI(apiKey);
+// Verificación de API key
+if (!apiKey) {
+  console.warn('ADVERTENCIA: No se encontró la API key de Gemini. Verifica tu archivo .env');
+}
+
+// Inicializar la API de Gemini solo si tenemos una API key
+const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
 // Obtener el modelo
-const model = genAI.getGenerativeModel({ model: modelName });
+const getModel = () => {
+  if (!genAI) {
+    throw new Error('API de Gemini no inicializada. Verifica tu archivo .env');
+  }
+  return genAI.getGenerativeModel({ model: modelName });
+};
 
 // Función para analizar una imagen y descripción
 export async function analyzeImageAndDescription(
@@ -31,6 +37,12 @@ export async function analyzeImageAndDescription(
   }[];
 }> {
   try {
+    if (!apiKey) {
+      throw new Error('API key de Gemini no configurada');
+    }
+
+    const model = getModel();
+    
     // Preparar la imagen para el modelo
     const imageParts = [
       {
@@ -95,6 +107,12 @@ export async function discussDiagnosis(
   newUserMessage: string
 ): Promise<string> {
   try {
+    if (!apiKey) {
+      throw new Error('API key de Gemini no configurada');
+    }
+
+    const model = getModel();
+    
     // Crear un chat con el historial de mensajes
     const chat = model.startChat({
       history: previousMessages,

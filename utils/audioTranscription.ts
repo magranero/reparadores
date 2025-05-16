@@ -3,13 +3,9 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import Constants from 'expo-constants';
 
-// Acceder a las variables de entorno
-const apiKey = Constants.expoConfig?.extra?.GEMINI_API_KEY || 
-               process.env.EXPO_PUBLIC_GEMINI_API_KEY || 
-               'AIzaSyCh8qIxrGRQTqHSc_C93tyxd41Lx70nKfM';
-const modelName = Constants.expoConfig?.extra?.GEMINI_MODEL || 
-                 process.env.EXPO_PUBLIC_GEMINI_MODEL || 
-                 'gemini-2.5-pro-preview-05-06';
+// Acceder a las variables de entorno de forma segura
+const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+const modelName = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-2.5-pro-preview-05-06';
 
 /**
  * Convierte un archivo de audio a base64
@@ -54,16 +50,17 @@ export async function audioToBase64(uri: string): Promise<string | null> {
  */
 export async function transcribeAudio(audioUri: string): Promise<string | null> {
   try {
+    if (!apiKey) {
+      console.error('API key no disponible. Verifica tu archivo .env');
+      return null;
+    }
+    
     // En una implementación real, convertiríamos el audio a base64
     // y lo enviaríamos a la API de Gemini para su transcripción
-    
-    // Para simular la funcionalidad, usamos una implementación simple
-    // que envía un prompt a Gemini solicitando que genere una transcripción
     
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
     
     // Prompt para Gemini solicitando que simule una transcripción de audio
-    // de un problema de plomería en el hogar
     const requestBody = {
       contents: [{
         parts: [{
