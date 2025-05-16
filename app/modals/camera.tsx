@@ -118,7 +118,10 @@ export default function CameraModal() {
   const stopRecording = async () => {
     if (!recording || !isMounted.current) return;
     
-    setIsListening(false);
+    if (isMounted.current) {
+      setIsListening(false);
+    }
+    
     try {
       await recording.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({
@@ -133,8 +136,6 @@ export default function CameraModal() {
       if (isMounted.current) {
         setAudioURI(uri);
         setRecording(null);
-        
-        // Transcribe the audio using Gemini AI
         setIsTranscribing(true);
       }
       
@@ -188,7 +189,10 @@ export default function CameraModal() {
       }
       
       sound.current = audioSound;
-      setIsPlaying(true);
+      
+      if (isMounted.current) {
+        setIsPlaying(true);
+      }
       
       audioSound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish && isMounted.current) {
@@ -260,7 +264,9 @@ export default function CameraModal() {
   const takePicture = async () => {
     if (cameraRef.current && isMounted.current) {
       try {
-        setIsProcessing(true);
+        if (isMounted.current) {
+          setIsProcessing(true);
+        }
         
         // Para dispositivos móviles, usamos la cámara
         const photo = await cameraRef.current.takePictureAsync();
@@ -293,7 +299,10 @@ export default function CameraModal() {
     if (!isMounted.current) return;
     
     try {
-      setIsProcessing(true);
+      if (isMounted.current) {
+        setIsProcessing(true);
+      }
+      
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
