@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity, useColorScheme, Alert, Platform } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, useColorScheme, Text, Alert, Platform, Image as RNImage } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { Button } from '@/components/common/Button';
 import { Typography } from '@/components/common/Typography';
@@ -9,6 +9,9 @@ import { router } from 'expo-router';
 import { Image, X, Repeat, Camera, Slash as FlashOn, FlashlightOff as FlashOff, Mic, MicOff } from 'lucide-react-native';
 import { manipulateAsync } from 'expo-image-manipulator';
 import * as Speech from 'expo-speech';
+import * as FileSystem from 'expo-file-system';
+import * as ImagePicker from 'expo-image-picker';
+import { imageToBase64 } from '@/utils/gemini';
 
 export default function CameraModal() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -22,6 +25,7 @@ export default function CameraModal() {
   const [isRecording, setIsRecording] = useState(false);
   const [voiceExplanation, setVoiceExplanation] = useState<string>('');
   const [isListening, setIsListening] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   
   // Simulación de reconocimiento de voz (en una app real usaríamos Speech Recognition)
   const startListening = () => {
@@ -90,23 +94,63 @@ export default function CameraModal() {
     setFlash(current => !current);
   };
   
+  // Función modificada para tomar foto, con manejo mejorado de errores
   const takePicture = async () => {
     if (cameraRef.current) {
       try {
+        setIsProcessing(true);
+        
+        // Si estamos en web, usamos ImagePicker como alternativa
+        if (Platform.OS === 'web') {
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 0.7,
+            allowsMultipleSelection: false,
+          });
+          
+          if (!result.canceled && result.assets && result.assets.length > 0) {
+            setPhoto(result.assets[0].uri);
+          }
+          setIsProcessing(false);
+          return;
+        }
+        
+        // Para dispositivos móviles, usamos la cámara
         const photo = await cameraRef.current.takePictureAsync();
         
-        // Resize image to reduce file size
-        const manipResult = await manipulateAsync(
-          photo.uri,
-          [{ resize: { width: 1200 } }],
-          { compress: 0.7 }
-        );
+        // Evitamos manipulación para simplificar y evitar errores
+        setPhoto(photo.uri);
         
-        setPhoto(manipResult.uri);
       } catch (error) {
         console.error('Error taking picture:', error);
-        Alert.alert('Error', 'No se pudo tomar la foto. Por favor, inténtalo de nuevo.');
+        Alert.alert('Error', 'No se pudo tomar la foto. Por favor, inténtalo de nuevo.\n\nSugerencia: Si estás en web, permite el acceso a la cámara en la configuración del navegador o usa la opción "Subir" en lugar de "Cámara".');
+      } finally {
+        setIsProcessing(false);
       }
+    }
+  };
+  
+  // Alternativa: Seleccionar imagen de la galería
+  const pickImage = async () => {
+    try {
+      setIsProcessing(true);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setPhoto(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'No se pudo seleccionar la imagen. Por favor, inténtalo de nuevo.');
+    } finally {
+      setIsProcessing(false);
     }
   };
   
@@ -120,8 +164,7 @@ export default function CameraModal() {
     // Por ahora, simplemente vamos a la pantalla de resultados
     router.back();
     
-    // Pasamos a la pantalla de resultados con los datos
-    // En una implementación real, pasaríamos estos datos como parámetros
+    // Añadimos un pequeño retraso para evitar problemas de navegación
     setTimeout(() => {
       router.push('/(tabs)/diagnosis/result');
     }, 100);
@@ -148,7 +191,7 @@ export default function CameraModal() {
           </View>
         ) : (
           <View style={styles.previewContainer}>
-            <Image 
+            <RNImage 
               source={{ uri: photo }}
               style={{ width: '100%', height: '100%' }}
               resizeMode="contain"
@@ -234,58 +277,85 @@ export default function CameraModal() {
 
   return (
     <View style={[styles.container, { backgroundColor: 'black' }]}>
-      <CameraView
-        ref={cameraRef}
-        style={styles.camera}
-        facing={facing}
-        flash={flash ? 'on' : 'off'}
-      >
-        <View style={styles.topControls}>
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={handleCancel}
-          >
-            <X size={24} color="white" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={styles.flashButton}
-            onPress={toggleFlash}
-          >
-            {flash ? (
-              <FlashOn size={24} color="white" />
-            ) : (
-              <FlashOff size={24} color="white" />
-            )}
-          </TouchableOpacity>
+      {Platform.OS === 'web' ? (
+        <View style={styles.webCameraContainer}>
+          <Typography variant="h6" weight="bold" style={{color: 'white', marginBottom: 20}}>
+            Selecciona una imagen
+          </Typography>
+          <Button
+            title="Seleccionar imagen"
+            onPress={pickImage}
+            style={{marginBottom: 20}}
+          />
+          <Typography variant="body2" style={{color: 'white', textAlign: 'center'}}>
+            La captura de cámara en web puede presentar limitaciones.
+            Te recomendamos seleccionar una imagen existente.
+          </Typography>
         </View>
-        
-        <View style={styles.captureContainer}>
-          <View style={styles.captureHint}>
-            <Typography variant="body2" style={styles.hintText}>
-              Apunta al área con el problema
+      ) : (
+        <CameraView
+          ref={cameraRef}
+          style={styles.camera}
+          facing={facing}
+          flash={flash ? 'on' : 'off'}
+        >
+          <View style={styles.topControls}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={handleCancel}
+            >
+              <X size={24} color="white" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.flashButton}
+              onPress={toggleFlash}
+            >
+              {flash ? (
+                <FlashOn size={24} color="white" />
+              ) : (
+                <FlashOff size={24} color="white" />
+              )}
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.captureContainer}>
+            <View style={styles.captureHint}>
+              <Typography variant="body2" style={styles.hintText}>
+                Apunta al área con el problema
+              </Typography>
+            </View>
+            
+            <View style={styles.captureControls}>
+              <TouchableOpacity
+                style={styles.flipButton}
+                onPress={toggleCameraFacing}
+              >
+                <Repeat size={28} color="white" />
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.captureButton}
+                onPress={takePicture}
+                disabled={isProcessing}
+              >
+                <View style={styles.captureButtonInner} />
+              </TouchableOpacity>
+              
+              <View style={styles.placeholderButton} />
+            </View>
+          </View>
+        </CameraView>
+      )}
+      {isProcessing && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingContainer}>
+            <Typography variant="body1" style={{color: 'white', marginBottom: 10}}>
+              Procesando imagen...
             </Typography>
           </View>
-          
-          <View style={styles.captureControls}>
-            <TouchableOpacity
-              style={styles.flipButton}
-              onPress={toggleCameraFacing}
-            >
-              <Repeat size={28} color="white" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.captureButton}
-              onPress={takePicture}
-            >
-              <View style={styles.captureButtonInner} />
-            </TouchableOpacity>
-            
-            <View style={styles.placeholderButton} />
-          </View>
         </View>
-      </CameraView>
+      )}
     </View>
   );
 }
@@ -295,6 +365,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  webCameraContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
   permissionTitle: {
     marginBottom: Layout.spacing.md,
@@ -456,5 +532,18 @@ const styles = StyleSheet.create({
   previewButton: {
     flex: 1,
     marginHorizontal: Layout.spacing.sm,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  loadingContainer: {
+    padding: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    alignItems: 'center',
   },
 });
