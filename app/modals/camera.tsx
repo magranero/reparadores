@@ -11,6 +11,7 @@ import { manipulateAsync } from 'expo-image-manipulator';
 import * as Speech from 'expo-speech';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
+import { Audio } from 'expo-av';
 import { imageToBase64 } from '@/utils/gemini';
 
 export default function CameraModal() {
@@ -18,6 +19,7 @@ export default function CameraModal() {
   const colors = Colors[colorScheme];
   
   const [permission, requestPermission] = useCameraPermissions();
+  const [audioPermission, setAudioPermission] = useState(false);
   const [facing, setFacing] = useState<CameraType>('back');
   const [flash, setFlash] = useState(false);
   const cameraRef = useRef<any>(null);
@@ -27,19 +29,116 @@ export default function CameraModal() {
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // Simulación de reconocimiento de voz (en una app real usaríamos Speech Recognition)
-  const startListening = () => {
-    setIsListening(true);
-    // Simulamos que estamos escuchando
-    setTimeout(() => {
-      setIsListening(false);
-      setVoiceExplanation('El grifo de la cocina está goteando constantemente y ha formado una mancha de agua en el armario debajo del fregadero.');
-    }, 3000);
+  // Audio recording
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [audioURI, setAudioURI] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const sound = useRef<Audio.Sound | null>(null);
+  
+  // Request audio permissions
+  useEffect(() => {
+    const getAudioPermission = async () => {
+      const { status } = await Audio.requestPermissionsAsync();
+      setAudioPermission(status === 'granted');
+    };
+    
+    if (photo) {
+      getAudioPermission();
+    }
+  }, [photo]);
+  
+  // Start recording audio
+  const startRecording = async () => {
+    try {
+      if (!audioPermission) {
+        const { status } = await Audio.requestPermissionsAsync();
+        setAudioPermission(status === 'granted');
+        if (status !== 'granted') {
+          Alert.alert('Permiso necesario', 'Necesitamos permiso para grabar audio');
+          return;
+        }
+      }
+      
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      
+      setRecording(recording);
+      setIsListening(true);
+    } catch (err) {
+      console.error('Error al iniciar la grabación', err);
+      Alert.alert('Error', 'No se pudo iniciar la grabación de audio');
+    }
   };
   
-  const stopListening = () => {
+  // Stop recording audio
+  const stopRecording = async () => {
+    if (!recording) return;
+    
     setIsListening(false);
+    try {
+      await recording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+      });
+      
+      const uri = recording.getURI();
+      setAudioURI(uri);
+      setRecording(null);
+      
+      // Para simular la transcripción, usamos un texto predefinido
+      // En una app real, aquí integraríamos un servicio de transcripción
+      setVoiceExplanation('El grifo de la cocina está goteando constantemente y ha formado una mancha de agua en el armario debajo del fregadero.');
+    } catch (err) {
+      console.error('Error al detener la grabación', err);
+      setRecording(null);
+    }
   };
+  
+  // Play recorded audio
+  const playRecordedAudio = async () => {
+    if (!audioURI) return;
+    
+    try {
+      if (sound.current) {
+        await sound.current.unloadAsync();
+      }
+      
+      const { sound: audioSound } = await Audio.Sound.createAsync(
+        { uri: audioURI },
+        { shouldPlay: true }
+      );
+      
+      sound.current = audioSound;
+      setIsPlaying(true);
+      
+      audioSound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          setIsPlaying(false);
+        }
+      });
+    } catch (err) {
+      console.error('Error al reproducir audio', err);
+      setIsPlaying(false);
+    }
+  };
+  
+  // Clean up resources
+  useEffect(() => {
+    return () => {
+      if (recording) {
+        recording.stopAndUnloadAsync();
+      }
+      if (sound.current) {
+        sound.current.unloadAsync();
+      }
+    };
+  }, [recording]);
   
   // Función para leer el texto en voz alta
   const speakExplanation = () => {
@@ -157,11 +256,31 @@ export default function CameraModal() {
   const retakePicture = () => {
     setPhoto(null);
     setVoiceExplanation('');
+    setAudioURI(null);
+    
+    if (sound.current) {
+      sound.current.unloadAsync();
+      sound.current = null;
+    }
   };
   
   const handleUsePhoto = () => {
-    // Aquí normalmente guardaríamos la foto y la explicación por voz para el análisis de IA
-    // Por ahora, simplemente vamos a la pantalla de resultados
+    // Comprobamos que tengamos una explicación antes de continuar
+    if (!voiceExplanation) {
+      Alert.alert('Se requiere descripción', 'Por favor, describe el problema para continuar');
+      return;
+    }
+    
+    // Guardamos los datos del diagnóstico
+    const diagnosisData = {
+      photo: photo,
+      explanation: voiceExplanation,
+      audio: audioURI
+    };
+    
+    // Almacenar datos en AsyncStorage para recuperarlos en la pantalla de resultados
+    // (en una implementación real)
+    
     router.back();
     
     // Añadimos un pequeño retraso para evitar problemas de navegación
@@ -208,7 +327,7 @@ export default function CameraModal() {
             <View style={styles.recordContainer}>
               <Typography variant="body2" color="secondary" style={styles.recordInstructions}>
                 {isListening 
-                  ? 'Escuchando... Habla claramente' 
+                  ? 'Grabando audio... Habla claramente' 
                   : 'Presiona el micrófono y describe el problema en detalle'}
               </Typography>
               
@@ -217,7 +336,7 @@ export default function CameraModal() {
                   styles.recordButton,
                   isListening && { backgroundColor: colors.error[500] }
                 ]}
-                onPress={isListening ? stopListening : startListening}
+                onPress={isListening ? stopRecording : startRecording}
               >
                 {isListening ? (
                   <MicOff size={24} color="white" />
@@ -233,19 +352,29 @@ export default function CameraModal() {
               </Typography>
               
               <View style={styles.explanationActions}>
-                <TouchableOpacity
-                  style={[styles.actionButton, { backgroundColor: colors.primary[500] }]}
-                  onPress={speakExplanation}
-                >
-                  <Mic size={18} color="white" />
-                  <Typography variant="caption" style={styles.actionButtonText}>
-                    Escuchar
-                  </Typography>
-                </TouchableOpacity>
+                {audioURI && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: colors.primary[500] }]}
+                    onPress={playRecordedAudio}
+                    disabled={isPlaying}
+                  >
+                    <Mic size={18} color="white" />
+                    <Typography variant="caption" style={styles.actionButtonText}>
+                      {isPlaying ? 'Reproduciendo...' : 'Escuchar audio'}
+                    </Typography>
+                  </TouchableOpacity>
+                )}
                 
                 <TouchableOpacity
                   style={[styles.actionButton, { backgroundColor: colors.warning[500] }]}
-                  onPress={() => setVoiceExplanation('')}
+                  onPress={() => {
+                    setVoiceExplanation('');
+                    setAudioURI(null);
+                    if (sound.current) {
+                      sound.current.unloadAsync();
+                      sound.current = null;
+                    }
+                  }}
                 >
                   <X size={18} color="white" />
                   <Typography variant="caption" style={styles.actionButtonText}>
