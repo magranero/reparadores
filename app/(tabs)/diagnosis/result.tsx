@@ -1540,4 +1540,5 @@ const styles = StyleSheet.create({
   },
 });
 
+// Add explicit default export to fix the issue
 export default DiagnosisResultScreen;
