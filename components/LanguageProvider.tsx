@@ -7,7 +7,16 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState(i18n.locale);
 
   useEffect(() => {
-    initializeI18n().then(setLocaleState);
+    const loadLocale = async () => {
+      try {
+        const initializedLocale = await initializeI18n();
+        setLocaleState(initializedLocale);
+      } catch (error) {
+        console.error('Error initializing i18n:', error);
+      }
+    };
+    
+    loadLocale();
   }, []);
 
   const setLocale = async (newLocale: string) => {

@@ -42,7 +42,7 @@ export default function RootLayout() {
     <ErrorBoundary>
       <LanguageProvider>
         <GestureHandlerRootView style={styles.container}>
-          <Stack screenOptions={{ headerShown: false }}>
+          <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="modals/camera" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modals/filter" options={{ presentation: 'modal' }} />

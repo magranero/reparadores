@@ -289,15 +289,21 @@ function DiagnosisResultScreen() {
   });
   
   const handleFindProfessionals = () => {
-    setSelectedOption('professional');
+    if (isMounted.current) {
+      setSelectedOption('professional');
+    }
   };
   
   const handleFixMyself = () => {
-    setSelectedOption('diy');
+    if (isMounted.current) {
+      setSelectedOption('diy');
+    }
   };
   
   const handleShare = () => {
     // En una implementación real, aquí compartiríamos el diagnóstico
+    if (!isMounted.current) return;
+    
     Alert.alert(
       "Compartir diagnóstico", 
       "¿Quieres compartir este diagnóstico?",
@@ -309,7 +315,9 @@ function DiagnosisResultScreen() {
         {
           text: "Compartir", 
           onPress: () => {
-            Alert.alert("Compartido", "El diagnóstico ha sido compartido exitosamente");
+            if (isMounted.current) {
+              Alert.alert("Compartido", "El diagnóstico ha sido compartido exitosamente");
+            }
           }
         }
       ]
@@ -326,18 +334,24 @@ function DiagnosisResultScreen() {
   };
   
   const handleOpenDiscussion = () => {
-    setShowDiscussionModal(true);
+    if (isMounted.current) {
+      setShowDiscussionModal(true);
+    }
   };
   
   const handleCloseDiscussion = () => {
-    setShowDiscussionModal(false);
+    if (isMounted.current) {
+      setShowDiscussionModal(false);
+    }
   };
   
   const handleViewProfessional = (id: string) => {
+    if (!isMounted.current) return;
     router.push(`/(tabs)/professionals/${id}`);
   };
   
   const handleOpenTutorial = (url: string) => {
+    if (!isMounted.current) return;
     Linking.openURL(url);
   };
   
@@ -347,7 +361,9 @@ function DiagnosisResultScreen() {
     try {
       // Si tenemos análisis, usamos la API real
       if (analysisResult) {
-        setAiResponse("Procesando tu consulta...");
+        if (isMounted.current) {
+          setAiResponse("Procesando tu consulta...");
+        }
         
         const response = await discussDiagnosis(analysisResult, discussionText);
         
@@ -356,7 +372,9 @@ function DiagnosisResultScreen() {
         }
       } else {
         // Simulamos una respuesta
-        setAiResponse("Procesando tu consulta...");
+        if (isMounted.current) {
+          setAiResponse("Procesando tu consulta...");
+        }
         
         setTimeout(() => {
           if (isMounted.current) {
@@ -373,6 +391,8 @@ function DiagnosisResultScreen() {
   };
   
   const speakText = (text: string) => {
+    if (!isMounted.current) return;
+    
     try {
       Speech.speak(text, {
         language: 'es',
@@ -385,6 +405,7 @@ function DiagnosisResultScreen() {
   };
   
   const handleBuyPart = (url: string) => {
+    if (!isMounted.current) return;
     Linking.openURL(url);
   };
   
@@ -715,7 +736,11 @@ function DiagnosisResultScreen() {
                   <Button
                     title="Solicitar presupuesto"
                     size="sm"
-                    onPress={() => router.push('/(tabs)/quotes')}
+                    onPress={() => {
+                      if (isMounted.current) {
+                        router.push('/(tabs)/quotes');
+                      }
+                    }}
                   />
                 </View>
               </Card>
@@ -944,7 +969,11 @@ function DiagnosisResultScreen() {
           
           <TouchableOpacity 
             style={styles.cancelButton}
-            onPress={() => router.back()}
+            onPress={() => {
+              if (isMounted.current) {
+                router.back();
+              }
+            }}
           >
             <Typography variant="body2" color="tertiary">
               Cancelar análisis
@@ -968,7 +997,11 @@ function DiagnosisResultScreen() {
           <Button
             title="Volver"
             variant="outline"
-            onPress={() => router.back()}
+            onPress={() => {
+              if (isMounted.current) {
+                router.back();
+              }
+            }}
             style={styles.goBackButton}
           />
         </View>
