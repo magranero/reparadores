@@ -51,7 +51,7 @@ const Star = ({ color, size, fill }: any) => {
   );
 };
 
-export default function DiagnosisResultScreen() {
+function DiagnosisResultScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
   
@@ -1539,3 +1539,5 @@ const styles = StyleSheet.create({
     minWidth: 200,
   },
 });
+
+export default DiagnosisResultScreen;

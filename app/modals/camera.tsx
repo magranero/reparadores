@@ -16,7 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { imageToBase64 } from '@/utils/gemini';
 import { transcribeAudio } from '@/utils/audioTranscription';
 
-export default function CameraModal() {
+function CameraModal() {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
   
@@ -826,3 +826,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 });
+
+export default CameraModal;
