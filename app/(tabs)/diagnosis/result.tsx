@@ -18,7 +18,7 @@ import { Button } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
 import Colors from '@/constants/Colors';
 import Layout from '@/constants/Layout';
-import { SquareTerminal as TerminalSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle2, PenTool as Tools, ShoppingBag, Share2, Clock, MessageCircle, Mic, X, Tool, User, ExternalLink, MapPin, Youtube } from 'lucide-react-native';
+import { SquareTerminal as TerminalSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle2, PenTool as Tools, ShoppingBag, Share2, Clock, MessageCircle, Mic, X, PenTool as Tool, User, ExternalLink, MapPin, Youtube } from 'lucide-react-native';
 import Animated, { 
   useSharedValue, 
   useAnimatedStyle, 
