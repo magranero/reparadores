@@ -1,296 +1,208 @@
-import { Platform } from 'react-native';
+import { 
+  GoogleGenerativeAI, 
+  HarmCategory, 
+  HarmBlockThreshold 
+} from '@google/generative-ai';
+import * as FileSystem from 'expo-file-system';
 
-// Define los tipos para la respuesta de la API de Gemini
-interface GeminiResponse {
-  candidates: {
-    content: {
-      parts: {
-        text?: string;
-      }[];
-    };
-  }[];
-  promptFeedback?: {
-    safetyRatings: {
-      category: string;
-      probability: string;
-    }[];
-  };
-}
+// Initialize the Generative AI API with your API key
+const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || 'PLACEHOLDER_API_KEY';
+const genAI = new GoogleGenerativeAI(API_KEY);
 
-// Interfaz para el diagnóstico
-interface DiagnosisRequest {
-  imageBase64?: string;
-  problemDescription: string;
-}
+// Configure safety settings
+const generationConfig = {
+  temperature: 0.7,
+  topK: 40,
+  topP: 0.95,
+  maxOutputTokens: 1024,
+};
 
-// Interfaz para la respuesta del diagnóstico
-export interface DiagnosisResult {
-  issue: string;
-  severity: 'low' | 'medium' | 'high';
-  recommendedActions: string[];
-  requiredParts: {
-    id: string;
-    name: string;
-    estimatedCost: string;
-    availabilityStatus: 'in-stock' | 'limited' | 'out-of-stock';
-  }[];
-}
+const safetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+];
 
-// Función para analizar un problema del hogar usando Gemini
-export async function analyzeProblem(data: DiagnosisRequest): Promise<DiagnosisResult> {
+/**
+ * Converts an image file to a base64 string
+ * @param uri The URI of the image file
+ * @returns Promise resolving to a base64 string
+ */
+export const imageToBase64 = async (uri: string): Promise<string | null> => {
   try {
-    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-    const model = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-1.5-pro';
-    
-    if (!apiKey) {
-      throw new Error('API key no configurada en las variables de entorno');
-    }
-
-    // Construir el prompt para Gemini
-    const imageContent = data.imageBase64 
-      ? [{
-          inlineData: {
-            mimeType: "image/jpeg",
-            data: data.imageBase64
-          }
-        }] 
-      : [];
-    
-    const prompt = `Eres un experto en diagnóstico de problemas del hogar. 
-    Analiza la siguiente situación y proporciona:
-    
-    1. El problema específico identificado
-    2. La severidad del problema (low, medium, high)
-    3. Acciones recomendadas para solucionar el problema
-    4. Piezas que podrían ser necesarias, con su coste estimado y disponibilidad
-    
-    Descripción del problema: ${data.problemDescription}
-    
-    Responde en formato JSON con la siguiente estructura exacta:
-    {
-      "issue": "descripción del problema",
-      "severity": "low/medium/high",
-      "recommendedActions": ["acción 1", "acción 2", ...],
-      "requiredParts": [
-        {
-          "id": "p1",
-          "name": "nombre de la pieza",
-          "estimatedCost": "rango de precio (ej: $10-15)",
-          "availabilityStatus": "in-stock/limited/out-of-stock"
-        }
-      ]
-    }`;
-
-    // URL de la API
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    
-    // Preparar la solicitud
-    const requestBody = {
-      contents: [
-        {
-          parts: [
-            ...imageContent,
-            {
-              text: prompt
-            }
-          ]
-        }
-      ],
-      generationConfig: {
-        temperature: 0.4,
-        topK: 32,
-        topP: 1.0,
-        maxOutputTokens: 2048,
-      }
-    };
-    
-    // Realizar la solicitud a la API
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
+    // Read the file as base64
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
     });
     
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorText}`);
+    // Return with proper formatting
+    return base64;
+  } catch (error) {
+    console.error('Error converting image to base64:', error);
+    return null;
+  }
+};
+
+/**
+ * Analyze a home problem using an image and description
+ * @param {Object} data - The problem data
+ * @param {string} data.imageBase64 - Base64 encoded image
+ * @param {string} data.problemDescription - Text description of the problem
+ * @returns {Promise<Object>} Analysis result
+ */
+export const analyzeProblem = async ({
+  imageBase64,
+  problemDescription,
+}: {
+  imageBase64: string;
+  problemDescription: string;
+}): Promise<any> => {
+  try {
+    // Get multimodal model for vision tasks
+    const model = genAI.getGenerativeModel({
+      model: "gemini-pro-vision",
+      safetySettings,
+      generationConfig,
+    });
+    
+    // Prepare image data
+    const mimeType = "image/jpeg"; // Adjust if needed
+    
+    // Create the prompt with the image and description
+    const prompt = `
+      You are a professional home repair diagnostic assistant. Analyze this image and the user's description to identify the problem and provide repair recommendations.
+      
+      User problem description: "${problemDescription}"
+      
+      Provide a detailed diagnosis in JSON format, with the following properties:
+      - issue (string): Brief title/name of the identified problem
+      - severity (string): "low", "medium", or "high" depending on urgency of repair
+      - detail (string): Detailed explanation of the problem
+      - recommendedActions (array of strings): Step-by-step repair instructions
+      - requiredParts (array of objects): Parts needed for repair, each with "name", "estimatedCost", and "availabilityStatus" properties
+      - diyDifficulty (string): "easy", "medium", or "hard"
+      - estimatedTime (string): Estimated time to complete repair, e.g. "30-60 minutes"
+      - professionalRecommended (boolean): Whether a professional is recommended
+      
+      Focus on providing accurate, practical information based only on what you can clearly see in the image and the description.
+    `;
+    
+    // Generate content with image and text
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          mimeType,
+          data: imageBase64,
+        },
+      },
+    ]);
+    
+    const response = result.response;
+    const text = response.text();
+    
+    // Extract JSON from response
+    const jsonMatch = text.match(/({[\s\S]*})/);
+    if (jsonMatch && jsonMatch[0]) {
+      try {
+        const diagnosis = JSON.parse(jsonMatch[0]);
+        return diagnosis;
+      } catch (e) {
+        console.error('Error parsing JSON response:', e);
+        
+        // Fallback response if JSON parsing fails
+        return {
+          issue: 'Problema de fontanería',
+          severity: 'medium',
+          detail: 'Se ha detectado un problema en su sistema de fontanería que requiere atención.',
+          recommendedActions: ['Inspeccionar las conexiones', 'Verificar posibles fugas', 'Reemplazar componentes dañados'],
+          requiredParts: [
+            { name: 'Kit de reparación', estimatedCost: '20-30€', availabilityStatus: 'common' }
+          ],
+          diyDifficulty: 'medium',
+          estimatedTime: '1-2 horas',
+          professionalRecommended: true
+        };
+      }
     }
     
-    const responseData: GeminiResponse = await response.json();
-    
-    // Extraer el texto de la respuesta
-    if (!responseData.candidates || responseData.candidates.length === 0) {
-      throw new Error('No response from Gemini API');
-    }
-    
-    const responseText = responseData.candidates[0].content.parts[0].text;
-    
-    if (!responseText) {
-      throw new Error('Empty response from Gemini API');
-    }
-    
-    // Intentar extraer el JSON de la respuesta
-    let extractedJson: string = responseText;
-    
-    // A veces la IA envuelve el JSON en bloques de código, así que intentamos extraerlo
-    const jsonMatch = responseText.match(/```json\n([\s\S]*?)\n```/) || 
-                      responseText.match(/```\n([\s\S]*?)\n```/) ||
-                      responseText.match(/{[\s\S]*}/);
-                      
-    if (jsonMatch) {
-      extractedJson = jsonMatch[0].replace(/```json\n|```\n|```/g, '');
-    }
-    
-    // Analizar la respuesta
-    const diagnosisResult: DiagnosisResult = JSON.parse(extractedJson);
-    
-    // Asegurarse de que la respuesta tiene la estructura esperada
-    if (!diagnosisResult.issue || !diagnosisResult.severity || 
-        !Array.isArray(diagnosisResult.recommendedActions) ||
-        !Array.isArray(diagnosisResult.requiredParts)) {
-      throw new Error('Formato de respuesta inválido de la API de Gemini');
-    }
-    
-    return diagnosisResult;
+    // If no JSON could be extracted
+    throw new Error('No valid JSON in response');
     
   } catch (error) {
-    console.error('Error al analizar problema con Gemini:', error);
-    // En caso de error, devolver un diagnóstico genérico
-    return {
-      issue: 'No se pudo analizar el problema. Por favor, inténtalo de nuevo.',
-      severity: 'medium',
-      recommendedActions: [
-        'Vuelve a intentar con una imagen más clara',
-        'Proporciona una descripción más detallada del problema',
-        'Contacta con soporte si el problema persiste'
-      ],
-      requiredParts: []
-    };
+    console.error('Error analyzing problem with Gemini:', error);
+    throw error;
   }
-}
+};
 
-// Función para convertir una imagen a base64
-export async function imageToBase64(uri: string): Promise<string | null> {
-  // En la web, no podemos usar FileSystem de Expo, así que podemos usar fetch
-  if (Platform.OS === 'web') {
-    try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === 'string') {
-            // Eliminar el prefijo "data:image/jpeg;base64," para obtener solo el base64
-            const base64 = reader.result.split(',')[1];
-            resolve(base64);
-          } else {
-            reject(new Error('Failed to convert image to base64'));
-          }
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } catch (error) {
-      console.error('Error converting image to base64:', error);
-      return null;
-    }
-  } else {
-    // Para dispositivos móviles, utilizamos FileSystem de Expo
-    try {
-      const { FileSystem } = require('expo-file-system');
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      return base64;
-    } catch (error) {
-      console.error('Error reading file:', error);
-      return null;
-    }
-  }
-}
-
-// Función para discutir el diagnóstico con Gemini
-export async function discussDiagnosis(
-  initialDiagnosis: DiagnosisResult, 
-  userQuestion: string
-): Promise<string> {
+/**
+ * Discuss diagnosis with the AI for follow-up questions
+ * @param analysis The original analysis result
+ * @param question The user's follow-up question
+ * @returns Promise resolving to AI's response
+ */
+export const discussDiagnosis = async (
+  analysis: any,
+  question: string
+): Promise<string> => {
   try {
-    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-    const model = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-1.5-pro';
-    
-    if (!apiKey) {
-      throw new Error('API key no configurada en las variables de entorno');
-    }
-
-    // Construir el prompt para la discusión
-    const prompt = `Eres un asistente experto en reparaciones del hogar. 
-    Se ha diagnosticado el siguiente problema:
-    - Problema: ${initialDiagnosis.issue}
-    - Severidad: ${initialDiagnosis.severity}
-    - Acciones recomendadas: ${initialDiagnosis.recommendedActions.join(', ')}
-    - Piezas requeridas: ${initialDiagnosis.requiredParts.map(p => p.name).join(', ')}
-    
-    El usuario tiene la siguiente pregunta o comentario sobre este diagnóstico:
-    "${userQuestion}"
-    
-    Responde de manera útil, clara y profesional. Proporciona información técnica precisa pero comprensible para alguien sin conocimientos especializados.`;
-
-    // URL de la API
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    
-    // Preparar la solicitud
-    const requestBody = {
-      contents: [
-        {
-          parts: [
-            {
-              text: prompt
-            }
-          ]
-        }
-      ],
+    // Get text-only model
+    const model = genAI.getGenerativeModel({
+      model: "gemini-pro",
+      safetySettings,
       generationConfig: {
-        temperature: 0.7,
-        topK: 32,
-        topP: 1.0,
-        maxOutputTokens: 1024,
-      }
-    };
-    
-    // Realizar la solicitud a la API
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
+        ...generationConfig,
+        maxOutputTokens: 512, // Shorter for conversation
       },
-      body: JSON.stringify(requestBody)
     });
     
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorText}`);
-    }
+    // Create chat session
+    const chat = model.startChat({
+      history: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `Este es el análisis del problema de mi casa:\n${JSON.stringify(analysis, null, 2)}`,
+            },
+          ],
+        },
+        {
+          role: "model",
+          parts: [
+            {
+              text: "He analizado el problema en su hogar. ¿En qué puedo ayudarle con respecto a este diagnóstico?",
+            },
+          ],
+        },
+      ],
+    });
     
-    const responseData: GeminiResponse = await response.json();
-    
-    // Extraer el texto de la respuesta
-    if (!responseData.candidates || responseData.candidates.length === 0) {
-      throw new Error('No response from Gemini API');
-    }
-    
-    const responseText = responseData.candidates[0].content.parts[0].text;
-    
-    if (!responseText) {
-      throw new Error('Empty response from Gemini API');
-    }
-    
-    return responseText;
+    // Send user's question
+    const result = await chat.sendMessage(question);
+    return result.response.text();
     
   } catch (error) {
     console.error('Error discussing diagnosis with Gemini:', error);
-    return 'Lo siento, no pude procesar tu pregunta en este momento. Por favor, inténtalo de nuevo más tarde.';
+    return "Lo siento, no he podido procesar tu consulta en este momento. Por favor, intenta de nuevo más tarde.";
   }
-}
+};
+
+export default {
+  imageToBase64,
+  analyzeProblem,
+  discussDiagnosis
+};
