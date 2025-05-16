@@ -27,6 +27,7 @@ import Animated, {
   FadeInLeft
 } from 'react-native-reanimated';
 import * as Speech from 'expo-speech';
+import { analyzeProblem, discussDiagnosis, DiagnosisResult } from '@/utils/gemini';
 
 export default function DiagnosisResultScreen() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -37,50 +38,61 @@ export default function DiagnosisResultScreen() {
   const [showDiscussionModal, setShowDiscussionModal] = useState(false);
   const [discussionText, setDiscussionText] = useState('');
   const [aiResponse, setAiResponse] = useState('');
+  const [aiIsResponding, setAiIsResponding] = useState(false);
   
   const progressAnimation = useSharedValue(0);
   
-  // Mock analysis result
-  const analysisResult = {
-    issue: 'Conexión dañada del sifón',
-    severity: 'medium',
-    recommendedActions: [
-      'Reemplazar el conjunto del sifón',
-      'Revisar las tuberías conectadas para detectar corrosión',
-      'Aplicar sellador de roscas en las conexiones'
-    ],
-    requiredParts: [
-      {
-        id: 'p1',
-        name: 'Kit de montaje de sifón',
-        estimatedCost: '15-25€',
-        availabilityStatus: 'in-stock'
-      },
-      {
-        id: 'p2',
-        name: 'Sellador de roscas para tuberías',
-        estimatedCost: '5-10€',
-        availabilityStatus: 'in-stock'
-      }
-    ]
-  };
+  // Estado para almacenar el resultado del análisis
+  const [analysisResult, setAnalysisResult] = useState<DiagnosisResult | null>(null);
   
-  // Simulate AI analysis
+  // Simulación de datos para el análisis
+  const problemDescription = "El grifo de la cocina está goteando constantemente y ha formado una mancha de agua en el armario debajo del fregadero.";
+  
+  // Función para analizar el problema al cargar
   useEffect(() => {
-    const timer = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(timer);
-          setTimeout(() => {
-            setAnalysisState('success');
-          }, 500);
-          return 100;
-        }
-        return prev + 5;
-      });
-    }, 300);
+    const analyzeWithAI = async () => {
+      try {
+        // Simular progreso mientras se analiza
+        const progressInterval = setInterval(() => {
+          setProgress(prev => {
+            if (prev >= 90) {
+              clearInterval(progressInterval);
+              return 90; // Mantenemos en 90% hasta tener respuesta
+            }
+            return prev + 5;
+          });
+        }, 300);
+        
+        // Llamar a la API de Gemini para análisis
+        const result = await analyzeProblem({
+          problemDescription
+        });
+        
+        // Una vez terminado el análisis, completamos el progreso
+        clearInterval(progressInterval);
+        setProgress(100);
+        
+        // Actualizar el estado con el resultado
+        setAnalysisResult(result);
+        
+        // Cambiar el estado de análisis a éxito
+        setTimeout(() => {
+          setAnalysisState('success');
+        }, 500);
+        
+      } catch (error) {
+        console.error("Error during analysis:", error);
+        setAnalysisState('error');
+      }
+    };
     
-    return () => clearInterval(timer);
+    // Iniciar el análisis
+    analyzeWithAI();
+    
+    // Cleanup
+    return () => {
+      // Limpiar cualquier intervalo o recurso si es necesario
+    };
   }, []);
   
   useEffect(() => {
@@ -101,6 +113,7 @@ export default function DiagnosisResultScreen() {
   const handleRetry = () => {
     setAnalysisState('loading');
     setProgress(0);
+    setAnalysisResult(null);
     
     // Restart analysis simulation
     const timer = setInterval(() => {
@@ -125,13 +138,26 @@ export default function DiagnosisResultScreen() {
     setShowDiscussionModal(false);
   };
   
-  const handleSendDiscussion = () => {
-    if (discussionText.trim() === '') return;
+  const handleSendDiscussion = async () => {
+    if (discussionText.trim() === '' || !analysisResult) return;
     
-    // Simulamos una respuesta de la IA
-    setTimeout(() => {
-      setAiResponse('Entiendo tu preocupación. Basado en la imagen y tu descripción, sigo considerando que el problema es con el sifón, pero también revisaré si hay problemas adicionales en las conexiones de suministro de agua. ¿Hay algún otro detalle que quieras compartir?');
-    }, 1500);
+    setAiIsResponding(true);
+    
+    try {
+      // Obtener respuesta de la API para la discusión
+      const response = await discussDiagnosis(
+        analysisResult,
+        discussionText
+      );
+      
+      // Actualizar la UI con la respuesta
+      setAiResponse(response);
+    } catch (error) {
+      console.error('Error getting AI response:', error);
+      setAiResponse('Lo siento, ha ocurrido un error al procesar tu pregunta. Por favor, inténtalo de nuevo.');
+    } finally {
+      setAiIsResponding(false);
+    }
   };
   
   const speakText = (text: string) => {
@@ -315,30 +341,30 @@ export default function DiagnosisResultScreen() {
                 <View 
                   style={[
                     styles.severityBadge,
-                    { backgroundColor: getSeverityBackground(analysisResult.severity) }
+                    { backgroundColor: getSeverityBackground(analysisResult?.severity || 'medium') }
                   ]}
                 >
-                  {renderSeverityIcon(analysisResult.severity)}
+                  {renderSeverityIcon(analysisResult?.severity || 'medium')}
                   <Typography 
                     variant="caption" 
                     weight="medium"
                     style={[
                       styles.severityText,
-                      { color: getSeverityColor(analysisResult.severity) }
+                      { color: getSeverityColor(analysisResult?.severity || 'medium') }
                     ]}
                   >
-                    SEVERIDAD {analysisResult.severity === 'high' ? 'ALTA' : analysisResult.severity === 'medium' ? 'MEDIA' : 'BAJA'}
+                    SEVERIDAD {analysisResult?.severity === 'high' ? 'ALTA' : analysisResult?.severity === 'medium' ? 'MEDIA' : 'BAJA'}
                   </Typography>
                 </View>
               </View>
               
               <View style={styles.issueContainer}>
                 <Typography variant="body1" weight="medium" style={styles.issueText}>
-                  {analysisResult.issue}
+                  {analysisResult?.issue || 'Conexión dañada del sifón'}
                 </Typography>
                 <TouchableOpacity
                   style={styles.speakButton}
-                  onPress={() => speakText(analysisResult.issue)}
+                  onPress={() => speakText(analysisResult?.issue || 'Conexión dañada del sifón')}
                 >
                   <Mic size={16} color={colors.primary[500]} />
                 </TouchableOpacity>
@@ -361,13 +387,17 @@ export default function DiagnosisResultScreen() {
                 </Typography>
                 <TouchableOpacity
                   style={styles.speakButton}
-                  onPress={() => speakText(analysisResult.recommendedActions.join('. '))}
+                  onPress={() => speakText((analysisResult?.recommendedActions || []).join('. '))}
                 >
                   <Mic size={16} color={colors.primary[500]} />
                 </TouchableOpacity>
               </View>
               
-              {analysisResult.recommendedActions.map((action, index) => (
+              {(analysisResult?.recommendedActions || [
+                'Reemplazar el conjunto del sifón',
+                'Revisar las tuberías conectadas para detectar corrosión',
+                'Aplicar sellador de roscas en las conexiones'
+              ]).map((action, index) => (
                 <Animated.View 
                   key={index} 
                   style={styles.actionItem}
@@ -401,13 +431,26 @@ export default function DiagnosisResultScreen() {
                 </Typography>
                 <TouchableOpacity
                   style={styles.speakButton}
-                  onPress={() => speakText(analysisResult.requiredParts.map(part => `${part.name}, coste estimado: ${part.estimatedCost}`).join('. '))}
+                  onPress={() => speakText((analysisResult?.requiredParts || []).map(part => `${part.name}, coste estimado: ${part.estimatedCost}`).join('. '))}
                 >
                   <Mic size={16} color={colors.primary[500]} />
                 </TouchableOpacity>
               </View>
               
-              {analysisResult.requiredParts.map((part, index) => (
+              {(analysisResult?.requiredParts || [
+                {
+                  id: 'p1',
+                  name: 'Kit de montaje de sifón',
+                  estimatedCost: '15-25€',
+                  availabilityStatus: 'in-stock'
+                },
+                {
+                  id: 'p2',
+                  name: 'Sellador de roscas para tuberías',
+                  estimatedCost: '5-10€',
+                  availabilityStatus: 'in-stock'
+                }
+              ]).map((part, index) => (
                 <Animated.View 
                   key={part.id} 
                   style={styles.partItem}
@@ -509,7 +552,7 @@ export default function DiagnosisResultScreen() {
                   </Typography>
                 </View>
                 <Typography variant="body2">
-                  {analysisResult.issue}
+                  {analysisResult?.issue || 'Conexión dañada del sifón'}
                 </Typography>
               </Card>
               
@@ -527,6 +570,8 @@ export default function DiagnosisResultScreen() {
                   size="sm"
                   onPress={handleSendDiscussion}
                   style={styles.sendButton}
+                  loading={aiIsResponding}
+                  disabled={aiIsResponding || discussionText.trim() === ''}
                 />
               </View>
               
