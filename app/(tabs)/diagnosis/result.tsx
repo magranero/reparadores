@@ -7,7 +7,8 @@ import {
   useColorScheme, 
   ActivityIndicator,
   TouchableOpacity,
-  Modal
+  Modal,
+  TextInput
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -16,7 +17,7 @@ import { Button } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
 import Colors from '@/constants/Colors';
 import Layout from '@/constants/Layout';
-import { SquareTerminal as TerminalSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle2, PenTool as Tools, ShoppingBag, Share2, Clock, MessageCircle, Mic } from 'lucide-react-native';
+import { SquareTerminal as TerminalSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle2, PenTool as Tools, ShoppingBag, Share2, Clock, MessageCircle, Mic, X } from 'lucide-react-native';
 import Animated, { 
   useSharedValue, 
   useAnimatedStyle, 
@@ -199,7 +200,7 @@ export default function DiagnosisResultScreen() {
                   style={[
                     styles.progressFill,
                     { backgroundColor: colors.primary[500] },
-                    progressStyle,
+                    { transform: [{ scaleX: progressAnimation.value }] }
                   ]}
                 />
               </View>
@@ -562,9 +563,6 @@ export default function DiagnosisResultScreen() {
   );
 }
 
-// Importamos TextInput para el modal de discusión
-import { TextInput } from 'react-native';
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -604,6 +602,8 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     borderRadius: 4,
+    width: '100%', // Ensure this is set to 100% for proper scaling
+    transform: [{ scaleX: 0 }], // Initial scale value
   },
   progressText: {
     textAlign: 'right',
